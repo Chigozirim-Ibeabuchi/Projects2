@@ -1,0 +1,1283 @@
+---
+title: "Healthcare and Medical Analytics Final Individual"
+output:
+  html_document: default
+  word_document: default
+date: "2023-06-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+# Specify the file path of the TSV file
+wave3<- "/Users/chigozirimibeabuchi/Desktop/ICPSR_21600-2/DS0008/21600-0008-Data.tsv"
+
+wave4 <- "/Users/chigozirimibeabuchi/Desktop/ICPSR_21600-2/DS0022/21600-0022-Data.tsv"
+
+wave4_pregnancies <- "/Users/chigozirimibeabuchi/Desktop/ICPSR_21600-2/DS0025/21600-0025-Data.tsv"
+
+wave4_births <- "/Users/chigozirimibeabuchi/Desktop/ICPSR_21600-2/DS0026/21600-0026-Data.tsv"
+```
+
+
+
+
+```{r}
+library(readr)
+wave3_data <- read_tsv(wave3, col_types = cols(.default = "character"))
+wave4_data <- read_tsv(wave4, col_types = cols(.default = "character"))
+pregnancies <- read_tsv(wave4_pregnancies, col_types = cols(.default = "character"))
+live_births <- read_tsv(wave4_births, col_types = cols(.default = "character"))
+
+```
+
+
+
+
+```{r}
+
+library(dplyr)
+
+join1 <- merge(wave3_data, wave4_data, by = "AID")
+
+# Then, join the result with df3
+join2 <- merge(join1, pregnancies, by = "AID")
+
+# Finally, join the result with df4
+final_join <- merge(join2, live_births, by = "AID")
+```
+
+
+
+
+```{r}
+#filter births
+
+# Load the dplyr package
+library(dplyr)
+
+# First, replace the specified values with NA
+final_join$H4PG3Y[final_join$H4PG3Y %in% c(9996, 9997, 9998)] <- NA
+
+# Then, group by AID and select the row with the largest H4PG3Y value
+final_join <- final_join %>%
+  group_by(AID) %>%
+  filter(!all(is.na(H4PG3Y))) %>%
+  filter(H4PG3Y == max(H4PG3Y, na.rm = TRUE)) %>%
+  slice(1)
+
+
+```
+
+
+
+
+```{r}
+final_columns <- final_join[, c("AID", "BIO_SEX4","H4PG3Y","H4PG5", "H4LB3","H4IR4","H4ED2" ,"H4LB4","H4LB6P", "H4LB8","H4LB9W", "H4EC1", "H4PG15", "H4PG14", "H4PG12", "H4BMICLS", "H4OD1Y" )]
+
+colnames(final_columns)[colnames(final_columns) == "BIO_SEX4"] <- "Gender"
+colnames(final_columns)[colnames(final_columns) == "H4LB6P"] <- "low_birthweight"
+colnames(final_columns)[colnames(final_columns) == "H4ED2"] <- "Education"
+colnames(final_columns)[colnames(final_columns) == "H4IR4"] <- "Race"
+colnames(final_columns)[colnames(final_columns) == "H4LB3"] <- "baby_gender"
+colnames(final_columns)[colnames(final_columns) == "H4LB9W"] <- "Actual_Preterm"
+colnames(final_columns)[colnames(final_columns) == "H4PG3Y"] <- "ChildBirth_Year"
+colnames(final_columns)[colnames(final_columns) == "H4LB8"] <- "Preterm_Measure"
+colnames(final_columns)[colnames(final_columns) == "H4EC1"] <- "Income"
+colnames(final_columns)[colnames(final_columns) == "H4LB4"] <- "Baby_Home"
+colnames(final_columns)[colnames(final_columns) == "H4PG15"] <- "Alcohol_Preg"
+colnames(final_columns)[colnames(final_columns) == "H4PG14"] <- "Smoking_Preg"
+colnames(final_columns)[colnames(final_columns) == "H4PG12"] <- "Prenatal_care"
+colnames(final_columns)[colnames(final_columns) == "H4BMICLS"] <- "BMI"
+colnames(final_columns)[colnames(final_columns) == "H4OD1Y"] <- "DOB"
+colnames(final_columns)[colnames(final_columns) == "H4PG5"] <- "Multiparity_status"
+```
+
+
+
+
+```{r}
+ # Filter for only female respondents
+final_columns <- final_columns %>% filter(Gender != 1)
+```
+
+
+
+
+```{r}
+final_columns$baby_gender <- ifelse(final_columns$baby_gender %in% c(1), 1,
+                                  ifelse(final_columns$baby_gender %in% c(2), 0,
+                                  ifelse(final_columns$baby_gender %in% c(6,8), NA, NA)))
+```
+
+
+
+```{r}
+final_columns$Multiparity_status[final_columns$Multiparity_status == 1] <- 0
+final_columns$Multiparity_status[final_columns$Multiparity_status %in% 2:5] <- 1
+final_columns$Multiparity_status[final_columns$Multiparity_status %in% 96:98] <- NA
+```
+
+
+
+```{r}
+final_columns <- final_columns %>%
+  mutate(
+    ChildBirth_Year = as.numeric(ChildBirth_Year),
+    DOB = as.numeric(DOB),
+    Mother_Age = ChildBirth_Year - DOB
+  )
+
+
+```
+
+
+```{r}
+# Filter rows where Baby_Home is 1
+final_columns <- final_columns%>% filter(Baby_Home == 1)
+```
+
+
+
+
+```{r}
+library(dplyr)
+
+# Use mutate() and case_when() to replace values
+final_columns <- final_columns %>%
+  mutate(Income = case_when(
+    Income == 1 ~ "low_income",
+    Income == 2 ~ "low_income",
+    Income == 3 ~ "low_income",
+    Income == 4 ~ "low_income",
+    Income == 5 ~ "low_income",
+    Income == 6 ~ "low_income",
+    Income == 7 ~ "low_income",
+    Income == 8 ~ "low_income",
+    Income == 9 ~ "middle_income",
+    Income == 10 ~ "middle_income",
+    Income == 11 ~ "middle_income",
+    Income == 12 ~ "upper_income",
+    Income == 96 ~ NA_character_,
+    Income == 98 ~ NA_character_,
+    TRUE ~ as.character(Income)  # Keep other values as is
+  ))
+```
+
+
+```{r}
+# Convert `Income` to factor and specify the order of levels
+final_columns$Income <- factor(final_columns$Income, levels = c(
+  "low_income",
+  "middle_income",
+  "upper_income"
+))
+```
+
+
+
+
+```{r}
+library(dplyr)
+
+# Use mutate() and case_when() to replace values
+final_columns <- final_columns %>%
+  mutate(Race = case_when(
+    Race == 1 ~ "White",
+    Race == 2 ~ "Black",
+    Race == 3 ~ "American_Indian",
+    Race == 4 ~ "AAPI",
+    TRUE ~ as.character(Race)  # Keep other values as is
+  ))
+```
+
+
+
+```{r}
+
+final_columns <- final_columns %>%
+  mutate(Education = case_when(
+    Education == 1 ~ "No_highschool",
+    Education == 2 ~ "No_highschool",
+    Education == 3 ~ "Highschool_grad",
+    Education == 4 ~ "Some_College",
+    Education == 5 ~ "Some_College",
+    Education == 6 ~ "Some_College",
+    Education == 7 ~ "Bachelors_or_higher",
+    Education == 8 ~ "Bachelors_or_higher",
+    Education == 9 ~ "Bachelors_or_higher",
+    Education == 10 ~ "Bachelors_or_higher",
+    Education == 11 ~ "Bachelors_or_higher",
+    Education == 12 ~ "Bachelors_or_higher",
+    Education == 13 ~ NA_character_,
+    Education == 98 ~ NA_character_,
+    TRUE ~ as.character(Education)  # Keep other values as is
+  ))
+```
+
+
+
+```{r}
+# Convert `Income` to factor and specify the order of levels
+final_columns$Education <- factor(final_columns$Education, levels = c(
+  "No_highschool",
+  "Highschool_grad",
+  "Some_College",
+  "Bachelors_or_higher"
+))
+```
+
+
+```{r}
+
+final_columns <- final_columns %>%
+  mutate(Alcohol_Preg = case_when(
+    Alcohol_Preg == 0 ~ "No_intake",
+    Alcohol_Preg == 1 ~ "Low_intake",
+    Alcohol_Preg == 2 ~ "Medium_intake",
+    Alcohol_Preg == 3 ~ "High_intake",
+    Alcohol_Preg == 6 ~ NA_character_,
+    Alcohol_Preg == 7 ~ NA_character_,
+    Alcohol_Preg == 8 ~ NA_character_,
+    TRUE ~ as.character(Alcohol_Preg)  # Keep other values as is
+  ))
+```
+
+
+```{r}
+# Convert `BMI` to factor and specify the order of levels
+final_columns$Alcohol_Preg <- factor(final_columns$Alcohol_Preg, levels = c(
+  "No_intake",
+  "Low_intake",
+  "Medium_intake",
+  "High_intake"
+))
+```
+
+
+
+```{r}
+final_columns <- final_columns %>%
+  mutate(Smoking_Preg = case_when(
+    Smoking_Preg == 0 ~ "No_cigs",
+    Smoking_Preg == 1 ~ "Low_cigs",
+    Smoking_Preg == 2 ~ "Medium_cigs",
+    Smoking_Preg == 3 ~ "High_cigs",
+    Smoking_Preg == 4 ~ "High_cigs",
+    Smoking_Preg == 5 ~ "High_cigs",
+    Smoking_Preg == 6 ~ "High_cigs",
+    Smoking_Preg == 96 ~ NA_character_,
+    Smoking_Preg == 97 ~ NA_character_,
+    Smoking_Preg == 98 ~ NA_character_,
+    TRUE ~ as.character(Smoking_Preg)  # Keep other values as is
+  ))
+```
+
+
+
+```{r}
+# Convert `BMI` to factor and specify the order of levels
+final_columns$Smoking_Preg <- factor(final_columns$Smoking_Preg, levels = c(
+  "No_cigs",
+  "Low_cigs",
+  "Medium_cigs",
+  "High_cigs"
+))
+```
+
+
+```{r}
+# Recode values of 6, 7, and 8 to NA
+final_columns$Prenatal_care <- ifelse(final_columns$Prenatal_care %in% c(6, 7, 8), NA, final_columns$Prenatal_care)
+
+```
+
+
+
+```{r}
+final_columns <- final_columns %>%
+  mutate(BMI = case_when(
+    BMI == 1 ~ "Underweight",
+    BMI == 2 ~ "Normal",
+    BMI == 3 ~ "Overweight",
+    BMI == 4 ~ "Obese_i",
+    BMI == 5 ~ "Obese_ii",
+    BMI == 6 ~ "Obese_iii",
+    BMI == 88 ~ "Obese_iii",
+    BMI == 89 ~ NA_character_,
+    BMI == 96 ~ NA_character_,
+    BMI == 97 ~ NA_character_,
+    BMI == 99 ~ NA_character_,
+    TRUE ~ as.character(BMI)  # Keep other values as is
+  ))
+```
+
+
+
+```{r}
+# Convert `BMI` to factor and specify the order of levels
+final_columns$BMI <- factor(final_columns$BMI, levels = c(
+  "Underweight",
+  "Normal",
+  "Overweight",
+  "Obese_i",
+  "Obese_ii",
+   "Obese_iii"
+))
+```
+
+
+```{r}
+final_columns$age_group <- cut(final_columns$Mother_Age, 
+                               breaks = c(-Inf, 20, 25, 30, 35, 40, Inf), 
+                               labels = c('<20', '20-24', '25-29', '30-34', '35-39', '>=40'),
+                               right = FALSE)
+
+```
+
+
+
+```{r}
+# Recode birth_weight
+final_columns$low_birthweight <- ifelse(final_columns$low_birthweight %in% c(0,1,2,3,4,5), 1,
+                                  ifelse(final_columns$low_birthweight %in% c(6,7,8,9,10,11,12,13), 0,
+                                  ifelse(final_columns$low_birthweight %in% c(96, 98), NA, NA)))
+
+```
+
+
+```{r}
+# Onoy record births that may be called preterm, filter rows where this is one because this means baby was born before due date
+final_columns <- final_columns %>% filter(Preterm_Measure == 1)
+```
+
+
+```{r}
+final_columns <- final_columns %>%
+  mutate(`Actual_Preterm` = trimws(`Actual_Preterm`),  # Remove leading/trailing white spaces
+         `Actual_Preterm` = as.character(`Actual_Preterm`),  # Convert to character type
+         `Actual_Preterm` = case_when(
+           `Actual_Preterm` %in% c("96", "98") ~ NA_character_,  # Use NA_character_ for character type
+           `Actual_Preterm` %in% c("0", "1", "2", "3", "97") ~ "0",
+           `Actual_Preterm` %in% c("4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20") ~ "1",
+           TRUE ~ `Actual_Preterm`
+         ))
+
+```
+
+
+```{r}
+# Compute the frequencies of each category in the low_birthweight variable
+lbw_freq <- table(final_columns$low_birthweight, useNA = "always")
+
+# Calculate the percentages
+lbw_percent <- lbw_freq / sum(lbw_freq, na.rm = TRUE) * 100
+
+# Create a data frame for the descriptive statistics
+lbw_stats <- data.frame(low_birthweight = names(lbw_freq),
+                        Frequency = as.vector(lbw_freq),
+                        Percentage = as.vector(lbw_percent),
+                        stringsAsFactors = FALSE)
+
+# Add a caption to the table
+lbw_table <- knitr::kable(lbw_stats, align = "c", caption = "Descriptive Statistics for Low Birth Weights Variable") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+# Print the formatted table
+lbw_table
+
+```
+
+
+
+
+```{r}
+# Compute the frequencies of each category in the Race variable
+race_freq <- table(final_columns$Race, useNA = "always")
+
+# Calculate the percentages manually
+race_percent <- race_freq / sum(race_freq, na.rm = TRUE) * 100
+
+# Calculate the count of missing values
+missing_count <- sum(is.na(final_columns$Race))
+
+# Create a data frame for the descriptive statistics
+race_stats <- data.frame(Race = names(race_freq),
+                         Frequency = as.vector(race_freq),
+                         Percentage = as.vector(race_percent),
+                         stringsAsFactors = FALSE)
+
+# Add a caption to the table
+race_table <- knitr::kable(race_stats, align = "c", caption = "Descriptive Statistics for Race Variable") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+# Print the formatted table
+race_table
+
+
+
+
+```
+
+
+```{r}
+# Compute the frequencies of each category in the Income variable
+income_freq <- table(final_columns$Income, useNA = "always")
+
+# Calculate the percentages manually
+income_percent <- income_freq / sum(income_freq, na.rm = TRUE) * 100
+
+# Calculate the count of missing values
+missing_count <- sum(is.na(final_columns$Income))
+
+# Create a data frame for the descriptive statistics
+income_stats <- data.frame(Income = names(income_freq),
+                           Frequency = as.vector(income_freq),
+                           Percentage = as.vector(income_percent),
+                           stringsAsFactors = FALSE)
+
+# Add a caption to the table
+income_table <- knitr::kable(income_stats, align = "c", caption = "Descriptive Statistics for Income Variable") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+# Print the formatted table
+income_table
+
+
+```
+
+
+```{r}
+# Compute the frequencies of each category in the Education variable
+education_freq <- table(final_columns$Education, useNA = "always")
+
+# Calculate the percentages manually
+education_percent <- education_freq / sum(education_freq, na.rm = TRUE) * 100
+
+# Calculate the count of missing values
+missing_count <- sum(is.na(final_columns$Education))
+
+# Create a data frame for the descriptive statistics
+education_stats <- data.frame(Education = names(education_freq),
+                              Frequency = as.vector(education_freq),
+                              Percentage = as.vector(education_percent),
+                              stringsAsFactors = FALSE)
+
+# Add a caption to the table
+education_table <- knitr::kable(education_stats, align = "c", caption = "Descriptive Statistics for Education Variable") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+# Print the formatted table
+education_table
+
+```
+
+
+
+```{r}
+# Compute the frequencies of each category in the Prenatal_care variable
+prenatal_freq <- table(final_columns$Prenatal_care, useNA = "always")
+
+# Calculate the percentages manually
+prenatal_percent <- prenatal_freq / sum(prenatal_freq, na.rm = TRUE) * 100
+
+# Change the values of Prenatal_care column
+prenatal_categories <- ifelse(names(prenatal_freq) == 0, "No Prenatal Care", "Prenatal Care")
+
+# Create a data frame for the descriptive statistics
+prenatal_stats <- data.frame(Prenatal_care = prenatal_categories,
+                             Frequency = as.vector(prenatal_freq),
+                             Percentage = as.vector(prenatal_percent),
+                             stringsAsFactors = FALSE)
+
+# Add a caption to the table
+prenatal_table <- knitr::kable(prenatal_stats, align = "c", caption = "Descriptive Statistics for Prenatal Care Variable") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+# Print the formatted table
+prenatal_table
+
+
+```
+
+```{r}
+# Compute the frequencies of each category in the baby_gender variable
+gender_freq <- table(final_columns$baby_gender, useNA = "always")
+
+# Calculate the percentages manually
+gender_percent <- gender_freq / sum(gender_freq, na.rm = TRUE) * 100
+
+# Change the values of baby_gender column
+gender_categories <- ifelse(names(gender_freq) == 0, "Girl", "Boy")
+
+# Create a data frame for the descriptive statistics
+gender_stats <- data.frame(Gender = gender_categories,
+                           Frequency = as.vector(gender_freq),
+                           Percentage = as.vector(gender_percent),
+                           stringsAsFactors = FALSE)
+
+# Add a caption to the table
+gender_table <- knitr::kable(gender_stats, align = "c", caption = "Descriptive Statistics for Baby Gender Variable") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+# Print the formatted table
+gender_table
+
+```
+
+
+
+```{r}
+# Compute the frequencies of each category in the Actual_Preterm variable
+preterm_freq <- table(final_columns$Actual_Preterm, useNA = "always")
+
+# Calculate the percentages manually
+preterm_percent <- preterm_freq / sum(preterm_freq, na.rm = TRUE) * 100
+
+# Change the values of Actual_Preterm column
+preterm_categories <- ifelse(names(preterm_freq) == 0, "Term", "Preterm")
+
+# Create a data frame for the descriptive statistics
+preterm_stats <- data.frame(Status = preterm_categories,
+                            Frequency = as.vector(preterm_freq),
+                            Percentage = as.vector(preterm_percent),
+                            stringsAsFactors = FALSE)
+
+# Add a caption to the table
+preterm_table <- knitr::kable(preterm_stats, align = "c", caption = "Descriptive Statistics for Actual Preterm Variable") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+# Print the formatted table
+preterm_table
+
+```
+
+
+```{r}
+# Compute the frequencies of each category in the BMI variable
+bmi_freq <- table(final_columns$BMI, useNA = "always")
+
+# Calculate the percentages manually
+bmi_percent <- bmi_freq / sum(bmi_freq, na.rm = TRUE) * 100
+
+# Calculate the count of missing values
+missing_count <- sum(is.na(final_columns$BMI))
+
+# Create a data frame for the descriptive statistics
+bmi_stats <- data.frame(BMI = names(bmi_freq),
+                        Frequency = as.vector(bmi_freq),
+                        Percentage = as.vector(bmi_percent),
+                        stringsAsFactors = FALSE)
+
+# Add a caption to the table
+bmi_table <- knitr::kable(bmi_stats, align = "c", caption = "Descriptive Statistics for BMI Variable") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+# Print the formatted table
+bmi_table
+
+```
+
+
+```{r}
+# Compute the frequencies of each category in the Smoking_Preg variable
+smoking_freq <- table(final_columns$Smoking_Preg, useNA = "always")
+
+# Calculate the percentages manually
+smoking_percent <- smoking_freq / sum(smoking_freq, na.rm = TRUE) * 100
+
+# Calculate the count of missing values
+missing_count <- sum(is.na(final_columns$Smoking_Preg))
+
+# Create a data frame for the descriptive statistics
+smoking_stats <- data.frame(Smoking_Preg = names(smoking_freq),
+                            Frequency = as.vector(smoking_freq),
+                            Percentage = as.vector(smoking_percent),
+                            stringsAsFactors = FALSE)
+
+# Add a caption to the table
+smoking_table <- knitr::kable(smoking_stats, align = "c", caption = "Descriptive Statistics for Smoking_Preg Variable") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+# Print the formatted table
+smoking_table
+
+```
+
+
+```{r}
+# Compute the frequencies of each category in the Multiparity_status variable
+multiparity_freq <- table(final_columns$Multiparity_status, useNA = "always")
+
+# Calculate the percentages manually
+multiparity_percent <- multiparity_freq / sum(multiparity_freq, na.rm = TRUE) * 100
+
+# Change the values of Multiparity_status column
+multiparity_categories <- ifelse(names(multiparity_freq) == 0, "Primiparous", "Multiparous")
+
+# Create a data frame for the descriptive statistics
+multiparity_stats <- data.frame(Multiparity_status = multiparity_categories,
+                                Frequency = as.vector(multiparity_freq),
+                                Percentage = as.vector(multiparity_percent),
+                                stringsAsFactors = FALSE)
+
+# Add a caption to the table
+multiparity_table <- knitr::kable(multiparity_stats, align = "c", caption = "Descriptive Statistics for Multiparity Status Variable") %>%
+  kableExtra::kable_styling(bootstrap_options = "striped")
+
+# Print the formatted table
+multiparity_table
+
+```
+
+
+
+```{r}
+
+library(tidyverse)
+
+# Filter the data to remove NA values for Race and Education, and include only specific races
+filtered_data <- final_columns %>%
+  filter(!is.na(Race), !is.na(Education), Race %in% c("Black", "White", "AAPI", "American_Indian"))
+
+# Calculate the total number of records for each Race
+totals <- filtered_data %>%
+  group_by(Race) %>%
+  summarise(total = n(), .groups = "drop")
+
+# Calculate the number of low and normal birth weight records for each Race
+counted_data <- filtered_data %>%
+  group_by(Race, low_birthweight) %>%
+  summarise(n = n(), .groups = "drop")
+
+# Join the counted data with the totals
+counted_data <- left_join(counted_data, totals, by = "Race")
+
+# Calculate the percentage of low and normal birth weight occurrences for each Race
+counted_data <- counted_data %>%
+  mutate(percentage = n / total)
+
+# Remove rows with NA in any column
+counted_data <- counted_data %>%
+  drop_na()
+
+# Plot the bar chart
+ggplot(counted_data, aes(x = Race, y = percentage, fill = factor(low_birthweight))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Race", y = "Percentage of Births", fill = "Birth Weight Category") +
+  scale_fill_manual(values = c("0" = "steelblue", "1" = "orange"), 
+                    labels = c("0" = "Normal Birth Weight", "1" = "Low Birth Weight"), 
+                    guide = guide_legend(title = "Birth Weight Category", reverse = TRUE)) +
+  scale_y_continuous(labels = scales::percent) +  # set y-axis to show labels as percentages
+  ggtitle("Distribution of Birth Weights among Different Races")  # add a title for the graph
+
+print(counted_data)
+
+```
+
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(scales)  # for the percent function
+
+# Filter the data to include only specific races and when low birth weight is 1
+filtered_data <- final_columns %>%
+  filter(Race %in% c("Black", "White"), low_birthweight == 1)
+
+# Define the desired order of x-axis categories
+education_order <- c("No_highschool", "Highschool_grad", "Some_College", "Bachelors_or_higher")
+
+# Calculate the total number of records for each Race
+totals <- filtered_data %>%
+  group_by(Race) %>%
+  summarise(total = n(), .groups = "drop")
+
+# Calculate the number of occurrences for each Race-Education combination
+counted_data <- filtered_data %>%
+  group_by(Race, Education) %>%
+  summarise(n = n(), .groups = "drop")
+
+# Join the counted data with the totals
+counted_data <- left_join(counted_data, totals, by = "Race")
+
+# Calculate the percentage of each Race-Education combination
+counted_data <- counted_data %>%
+  mutate(percentage = n / total)
+
+# Reorder the Education factor levels
+counted_data$Education <- factor(counted_data$Education, levels = education_order)
+
+# Plot the segmented bar chart
+ggplot(counted_data, aes(x = Education, y = percentage, fill = Race)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Education", y = "Percentage", fill = "Race", title = "Distribution of Low Birth Weight Cases by Race and Education Level") +
+  scale_fill_manual(values = c("Black" = "#1F78B4", "White" = "#33A02C")) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(legend.position = "top")
+
+print(counted_data)
+
+
+```
+
+
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(scales)  # for the percent function
+
+# Filter the data to include specific races and when low birth weight is 1
+filtered_data <- final_columns %>%
+  filter(Race %in% c("Black", "White", "AAPI", "American_Indian"), low_birthweight == 1)
+
+# Define the desired order of x-axis categories
+education_order <- c("No_highschool", "Highschool_grad", "Some_College", "Bachelors_or_higher")
+
+# Calculate the total number of records for each Race
+totals <- filtered_data %>%
+  group_by(Race) %>%
+  summarise(total = n(), .groups = "drop")
+
+# Calculate the number of occurrences for each Race-Education combination
+counted_data <- filtered_data %>%
+  group_by(Race, Education) %>%
+  summarise(n = n(), .groups = "drop")
+
+# Join the counted data with the totals
+counted_data <- left_join(counted_data, totals, by = "Race")
+
+# Calculate the percentage of each Race-Education combination
+counted_data <- counted_data %>%
+  mutate(percentage = n / total)
+
+# Reorder the Education factor levels
+counted_data$Education <- factor(counted_data$Education, levels = education_order)
+
+# Plot the segmented bar chart
+ggplot(counted_data, aes(x = Education, y = percentage, fill = Race)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Education", y = "Percentage", fill = "Race", title = "Distribution of Low Birth Weight Cases by Race and Education Level") +
+  scale_fill_manual(values = c("Black" = "#1F78B4", "White" = "#33A02C", "AAPI" = "#FB9A99", "American_Indian" = "#FF7F00")) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(legend.position = "top")
+
+
+
+```
+
+
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+# Calculate the percentage of low birth weight cases by BMI category
+bmi_percentage <- prop.table(table(final_columns$BMI, final_columns$low_birthweight), margin = 1) * 100
+
+# Filter the data for low birth weight cases (low_birthweight = 1)
+low_bwt_data <- final_columns[final_columns$low_birthweight == 1, ]
+
+# Calculate the total cases for each BMI category
+total_cases <- table(final_columns$BMI)
+
+# Calculate the percentage of low birth weight cases as a percentage of total cases by BMI category
+bmi_data <- data.frame(BMI = row.names(bmi_percentage),
+                       Percentage = bmi_percentage[, 2],
+                       TotalCases = total_cases[row.names(bmi_percentage)])
+
+# Define a custom color palette
+colors <- brewer.pal(n = length(unique(bmi_data$BMI)), name = "Set3")
+
+# Plot the bar chart with updated colors
+ggplot(bmi_data, aes(x = BMI, y = Percentage, fill = BMI)) +
+  geom_bar(stat = "identity") +
+  labs(x = "BMI Categories", y = "Percentage of Low Birth Weight Cases",
+       fill = "BMI Categories", title = "Percentage of Low Birth Weights by BMI Category") +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+```
+
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+# Calculate the percentage of low birth weight cases by Race
+race_percentage <- prop.table(table(final_columns$Race, final_columns$low_birthweight), margin = 1) * 100
+
+# Filter the data for low birth weight cases (low_birthweight = 1)
+low_bwt_data <- final_columns[final_columns$low_birthweight == 1, ]
+
+# Calculate the total cases for each Race category
+total_cases <- table(final_columns$Race)
+
+# Calculate the percentage of low birth weight cases as a percentage of total cases by Race
+race_data <- data.frame(Race = row.names(race_percentage),
+                        Percentage = race_percentage[, 2],
+                        TotalCases = total_cases[row.names(race_percentage)])
+
+# Define a custom color palette
+colors <- brewer.pal(n = length(unique(race_data$Race)), name = "Set3")
+
+# Plot the bar chart with updated colors
+ggplot(race_data, aes(x = Race, y = Percentage, fill = Race)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Race", y = "Percentage of Low Birth Weight Cases",
+       fill = "Race", title = "Percentage of Low Birth Weights by Race") +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+# Calculate the percentage of low birth weight cases by Income category
+income_percentage <- prop.table(table(final_columns$Income, final_columns$low_birthweight), margin = 1) * 100
+
+# Filter the data for low birth weight cases (low_birthweight = 1)
+low_bwt_data <- final_columns[final_columns$low_birthweight == 1, ]
+
+# Calculate the total cases for each Income category
+total_cases <- table(final_columns$Income)
+
+# Calculate the percentage of low birth weight cases as a percentage of total cases by Income category
+income_data <- data.frame(Income = row.names(income_percentage),
+                          Percentage = income_percentage[, 2],
+                          TotalCases = total_cases[row.names(income_percentage)])
+
+# Define a custom color palette
+colors <- brewer.pal(n = length(unique(income_data$Income)), name = "Set3")
+
+# Plot the bar chart with updated colors
+ggplot(income_data, aes(x = Income, y = Percentage, fill = Income)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Income Categories", y = "Percentage of Low Birth Weight Cases",
+       fill = "Income Categories", title = "Percentage of Low Birth Weights by Income Category") +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+# Calculate the percentage of low birth weight cases by Smoking during pregnancy category
+smoking_percentage <- prop.table(table(final_columns$Smoking_Preg, final_columns$low_birthweight), margin = 1) * 100
+
+# Filter the data for low birth weight cases (low_birthweight = 1)
+low_bwt_data <- final_columns[final_columns$low_birthweight == 1, ]
+
+# Calculate the total cases for each Smoking during pregnancy category
+total_cases <- table(final_columns$smoking_preg)
+
+# Calculate the percentage of low birth weight cases as a percentage of total cases by Smoking during pregnancy category
+smoking_data <- data.frame(Smoking = row.names(smoking_percentage),
+                          Percentage = smoking_percentage[, 2],
+                          TotalCases = total_cases[row.names(smoking_percentage)])
+
+# Define a custom color palette
+colors <- brewer.pal(n = length(unique(smoking_data$Smoking)), name = "Set3")
+
+# Plot the bar chart with updated colors
+ggplot(smoking_data, aes(x = Smoking, y = Percentage, fill = Smoking)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Frequency of Smoking during Pregnancy", y = "Percentage of Low Birth Weight Cases",
+       fill = "Frequency of Smoking during Pregnancy", title = "Percentage of Low Birth Weights by Smoking_Preg Category") +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+library(fastDummies)
+final_columns <- dummy_cols(final_columns, select_columns = "Income")
+final_columns <- dummy_cols(final_columns, select_columns = "Race")
+final_columns <- dummy_cols(final_columns, select_columns = "Education")
+final_columns <- dummy_cols(final_columns, select_columns = "Alcohol_Preg")
+final_columns <- dummy_cols(final_columns, select_columns = "Smoking_Preg")
+final_columns <- dummy_cols(final_columns, select_columns = "BMI")
+final_columns <- dummy_cols(final_columns, select_columns = "age_group")
+```
+
+
+```{r}
+# Fit first logistic regression model
+final_columns$Race <- as.factor(final_columns$Race)
+final_columns$Race <- relevel(final_columns$Race, ref = "White")
+logitModel <- glm(low_birthweight ~ Race, data = final_columns, family = binomial())
+summary(logitModel)
+```
+
+```{r}
+# Fit second logistic regression model
+final_columns$Race <- as.factor(final_columns$Race)
+final_columns$Race <- relevel(final_columns$Race, ref = "White")
+final_columns$Income <- relevel(final_columns$Income, ref = "low_income")
+final_columns$Education <- relevel(final_columns$Education, ref = "Some_College")
+final_columns$Prenatal_care <- as.factor(final_columns$Prenatal_care)
+logitModel3 <- glm(low_birthweight ~ Race + Income + Education + Prenatal_care, data = final_columns, family = binomial())
+summary(logitModel3)
+```
+
+
+
+```{r}
+# Fit third logistic regression model
+final_columns$Race <- as.factor(final_columns$Race)
+final_columns$Race <- relevel(final_columns$Race, ref = "White")
+final_columns$Income <- relevel(final_columns$Income, ref = "low_income")
+final_columns$Education <- relevel(final_columns$Education, ref = "Some_College")
+final_columns$Smoking_Preg <- relevel(final_columns$Smoking_Preg, ref = "No_cigs")
+final_columns$BMI <- relevel(final_columns$BMI, ref = "Normal")
+final_columns$age_group <- relevel(final_columns$age_group, ref = "25-29")
+final_columns$Prenatal_care <- as.factor(final_columns$Prenatal_care)
+logitModel4 <- glm(low_birthweight ~ Race + Income + Education + Prenatal_care + Multiparity_status + Actual_Preterm+ BMI+ Smoking_Preg+baby_gender, data = final_columns, family = binomial())
+summary(logitModel4)
+
+```
+
+
+```{r}
+library(stargazer)
+stargazer(logitModel,logitModel3,logitModel4, type="text", title= "logistic regression models for low birth weight prediction")
+
+```
+
+```{r}
+library(car)
+library(kableExtra)
+
+# Calculate VIF for the logistic regression model
+vif_values <- vif(logitModel4)
+
+# View the VIF values
+print(vif_values)
+# Print the result_df using kable for a nicely formatted table
+kable(vif_values, format = "html", caption = "VIF values") %>%
+  kable_styling(bootstrap_options = "striped")
+
+```
+
+```{r}
+library(caret)
+library(kableExtra)
+Variable_Importance= varImp(logitModel4)
+library(knitr)
+
+# Print the result_df using kable for a nicely formatted table
+kable(Variable_Importance, format = "html", caption = "Variable_Importance") %>%
+  kable_styling(bootstrap_options = "striped")
+```
+
+
+```{r}
+chi_square_result <- anova(logitModel4, test = "Chisq")
+
+# Convert the anova result to a data frame
+result_df <- as.data.frame(chi_square_result)
+
+# Load the knitr package
+library(knitr)
+
+# Print the result_df using kable for a nicely formatted table
+kable(result_df, format = "html", caption = "Chi-Square Test Results") %>%
+  kable_styling(bootstrap_options = "striped")
+
+
+print(result_df)
+```
+
+
+
+```{r}
+# Check for missing values in the dataset
+sum(is.na(final_columns))
+
+# Remove rows with missing values
+final_columns_complete <- final_columns[complete.cases(final_columns), ]
+
+# Fit the null model
+null_model <- glm(low_birthweight ~ 1, data = final_columns_complete, family = binomial())
+
+# Fit the full model
+full_model <- glm(low_birthweight ~ Race + Income + Education + Prenatal_care + Multiparity_status + Actual_Preterm + BMI + Smoking_Preg + baby_gender, data = final_columns_complete, family = binomial())
+
+# Perform the likelihood ratio test
+lr_test <- anova(null_model, full_model, test = "Chisq")
+
+# Print the test results
+library(stargazer)
+stargazer(lr_test, type="text", title= "Results of Likelihood Ratio test")
+
+```
+
+```{r}
+# Fit the logistic regression model
+library(pROC)
+logitModel4 <- glm(low_birthweight ~ Race + Income + Education + Prenatal_care + Multiparity_status + Actual_Preterm + BMI + Smoking_Preg + baby_gender , data = final_columns, family = binomial())
+
+# Use the same dataset to generate predicted probabilities
+predicted_probs <- predict(logitModel4, type = "response", newdata = final_columns)
+
+# Create a ROC curve and calculate the AUROC
+roc_obj <- roc(final_columns$low_birthweight, predicted_probs)
+
+# Plot the ROC curve
+plot(roc_obj, main = "ROC Curve", xlab = "False Positive Rate", ylab = "True Positive Rate")
+
+# Calculate the AUROC
+auroc <- auc(roc_obj)
+
+# Print the AUROC value
+cat("AUROC:", auroc, "\n")
+
+
+```
+
+
+```{r}
+final_columns$Race <- as.factor(final_columns$Race)
+final_columns$Multiparity_status <- as.factor(final_columns$Multiparity_status)
+final_columns$Actual_Preterm <- as.factor(final_columns$Actual_Preterm)
+final_columns$Prenatal_care <- as.factor(final_columns$Prenatal_care)
+final_columns$Race <- relevel(final_columns$Race, ref = "White")
+final_columns$Income <- relevel(final_columns$Income, ref = "low_income")
+final_columns$Education <- relevel(final_columns$Education, ref = "Some_College")
+final_columns$BMI <- relevel(final_columns$BMI, ref = "Normal")
+final_columns$Smoking_Preg <- relevel(final_columns$Smoking_Preg, ref = "No_cigs")
+
+
+# Fit logistic regression model with interaction term
+logitModel5 <- glm(low_birthweight ~ Race + Education + Race:Education + Income + BMI+ Multiparity_status +Prenatal_care + Actual_Preterm+Smoking_Preg+baby_gender , data = final_columns, family = binomial())
+
+# Print the summary of the model
+summary(logitModel5)
+```
+
+
+```{r}
+final_columns$Race <- as.factor(final_columns$Race)
+final_columns$Multiparity_status <- as.factor(final_columns$Multiparity_status)
+final_columns$Actual_Preterm <- as.factor(final_columns$Actual_Preterm)
+final_columns$Prenatal_care <- as.factor(final_columns$Prenatal_care)
+final_columns$Race <- relevel(final_columns$Race, ref = "White")
+final_columns$Income <- relevel(final_columns$Income, ref = "low_income")
+final_columns$Education <- relevel(final_columns$Education, ref = "Some_College")
+final_columns$BMI <- relevel(final_columns$BMI, ref = "Normal")
+final_columns$Smoking_Preg <- relevel(final_columns$Smoking_Preg, ref = "No_cigs")
+
+
+
+# Fit logistic regression model with interaction term
+logitModel6 <- glm(low_birthweight ~ Race + Education + Race:Actual_Preterm + Income + BMI+ Multiparity_status +Prenatal_care + Actual_Preterm+Smoking_Preg+baby_gender , data = final_columns, family = binomial())
+
+# Print the summary of the model
+summary(logitModel6)
+
+```
+
+```{r}
+library(stargazer)
+stargazer(logitModel5,logitModel6, type="text", title= "logistic regression models involving interaction terms for low birth weight prediction")
+```
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+# Calculate the percentage of low birth weight cases by Education category
+education_percentage <- prop.table(table(final_columns$Education, final_columns$low_birthweight), margin = 1) * 100
+
+# Filter the data for low birth weight cases (low_birthweight = 1)
+low_bwt_data <- final_columns[final_columns$low_birthweight == 1, ]
+
+# Calculate the total cases for each Education category
+total_cases <- table(final_columns$education)
+
+# Calculate the percentage of low birth weight cases as a percentage of total cases by Education category
+education_data <- data.frame(Education = row.names(education_percentage),
+                          Percentage = education_percentage[, 2],
+                          TotalCases = total_cases[row.names(education_percentage)])
+
+# Define a custom color palette
+colors <- brewer.pal(n = length(unique(education_data$Education)), name = "Set3")
+
+# Plot the bar chart with updated colors
+ggplot(education_data, aes(x = Education, y = Percentage, fill = Education)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Education Categories", y = "Percentage of Low Birth Weight Cases",
+       fill = "Education Categories", title = "Percentage of Low Birth Weights by Education Category") +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+# Recode the multiparity status variable: 0 = Primiparous, 1 = Multiparous
+final_columns$multiparity_status <- ifelse(final_columns$Multiparity_status == 0, "Primiparous", "Multiparous")
+
+# Calculate the percentage of low birth weight cases by Multiparity status
+multiparity_percentage <- prop.table(table(final_columns$multiparity_status, final_columns$low_birthweight), margin = 1) * 100
+
+# Filter the data for low birth weight cases (low_birthweight = 1)
+low_bwt_data <- final_columns[final_columns$low_birthweight == 1, ]
+
+# Calculate the total cases for each Multiparity status
+total_cases <- table(final_columns$multiparity_status)
+
+# Calculate the percentage of low birth weight cases as a percentage of total cases by Multiparity status
+multiparity_data <- data.frame(Multiparity_status = row.names(multiparity_percentage),
+                               Percentage = multiparity_percentage[, 2],
+                               TotalCases = total_cases[row.names(multiparity_percentage)])
+
+# Define a custom color palette
+colors <- brewer.pal(n = length(unique(multiparity_data$Multiparity_status)), name = "Set3")
+
+# Plot the bar chart with updated colors
+ggplot(multiparity_data, aes(x = Multiparity_status, y = Percentage, fill = Multiparity_status)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Multiparity Status", y = "Percentage of Low Birth Weight Cases",
+       fill = "Multiparity Status", title = "Percentage of Low Birth Weights by Multiparity Status") +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+# Recode the Actual_Preterm variable: 0 = Not preterm, 1 = Preterm
+final_columns$Actual_Preterm <- ifelse(final_columns$Actual_Preterm == 0, "Not Preterm", "Preterm")
+
+# Calculate the percentage of low birth weight cases by Actual_Preterm status
+preterm_percentage <- prop.table(table(final_columns$Actual_Preterm, final_columns$low_birthweight), margin = 1) * 100
+
+# Filter the data for low birth weight cases (low_birthweight = 1)
+low_bwt_data <- final_columns[final_columns$low_birthweight == 1, ]
+
+# Calculate the total cases for each Actual_Preterm status
+total_cases <- table(final_columns$Actual_Preterm)
+
+# Calculate the percentage of low birth weight cases as a percentage of total cases by Actual_Preterm status
+preterm_data <- data.frame(Actual_Preterm = row.names(preterm_percentage),
+                           Percentage = preterm_percentage[, 2],
+                           TotalCases = total_cases[row.names(preterm_percentage)])
+
+# Define a custom color palette
+colors <- brewer.pal(n = length(unique(preterm_data$Actual_Preterm)), name = "Set3")
+
+# Plot the bar chart with updated colors
+ggplot(preterm_data, aes(x = Actual_Preterm, y = Percentage, fill = Actual_Preterm)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Actual Preterm Status", y = "Percentage of Low Birth Weight Cases",
+       fill = "Actual Preterm Status", title = "Percentage of Low Birth Weights by Actual Preterm Status") +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+# Recode the baby_gender variable: 0 = Girl, 1 = Boy
+final_columns$baby_gender <- ifelse(final_columns$baby_gender == 0, "Girl", "Boy")
+
+# Calculate the percentage of low birth weight cases by Baby Gender
+gender_percentage <- prop.table(table(final_columns$baby_gender, final_columns$low_birthweight), margin = 1) * 100
+
+# Filter the data for low birth weight cases (low_birthweight = 1)
+low_bwt_data <- final_columns[final_columns$low_birthweight == 1, ]
+
+# Calculate the total cases for each Baby Gender
+total_cases <- table(final_columns$Baby_Gender)
+
+# Calculate the percentage of low birth weight cases as a percentage of total cases by Baby Gender
+gender_data <- data.frame(Baby_Gender = row.names(gender_percentage),
+                          Percentage = gender_percentage[, 2],
+                          TotalCases = total_cases[row.names(gender_percentage)])
+
+# Define a custom color palette
+colors <- brewer.pal(n = length(unique(gender_data$Baby_Gender)), name = "Set3")
+
+# Plot the bar chart with updated colors
+ggplot(gender_data, aes(x = Baby_Gender, y = Percentage, fill = Baby_Gender)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Baby Gender", y = "Percentage of Low Birth Weight Cases",
+       fill = "Baby Gender", title = "Percentage of Low Birth Weights by Baby Gender") +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+library(ggplot2)
+library(RColorBrewer)
+
+# Recode the Prenatal Care variable: 0 = No Prenatal Care, 1 = Prenatal Care
+final_columns$Prenatal_care <- ifelse(final_columns$Prenatal_care == 0, "No Prenatal Care", "Prenatal Care")
+
+# Calculate the percentage of low birth weight cases by Prenatal Care status
+prenatal_percentage <- prop.table(table(final_columns$Prenatal_care, final_columns$low_birthweight), margin = 1) * 100
+
+# Filter the data for low birth weight cases (low_birthweight = 1)
+low_bwt_data <- final_columns[final_columns$low_birthweight == 1, ]
+
+# Calculate the total cases for each Prenatal Care status
+total_cases <- table(final_columns$Prenatal_care)
+
+# Calculate the percentage of low birth weight cases as a percentage of total cases by Prenatal Care status
+prenatal_data <- data.frame(Prenatal_Care = row.names(prenatal_percentage),
+                           Percentage = prenatal_percentage[, 2],
+                           TotalCases = total_cases[row.names(prenatal_percentage)])
+
+# Define a custom color palette
+colors <- brewer.pal(n = length(unique(prenatal_data$Prenatal_Care)), name = "Set3")
+
+# Plot the bar chart with updated colors
+ggplot(prenatal_data, aes(x = Prenatal_Care, y = Percentage, fill = Prenatal_Care)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Prenatal Care", y = "Percentage of Low Birth Weight Cases",
+       fill = "Prenatal Care", title = "Percentage of Low Birth Weights by Access to Prenatal Care") +
+  scale_fill_manual(values = colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```

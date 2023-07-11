@@ -1,0 +1,832 @@
+---
+title: "Logistics and Supply Chain Individual Project"
+output:
+  pdf_document:
+    pandoc_args: ["--pdf-engine=/Library/TinyTeX/bin/x86_64-darwin/pdflatex"]
+  html_document: default
+date: "2023-03-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/chigozirimibeabuchi/Downloads/Logistics and Supply Chain Individual Project/data")
+```
+
+```{r}
+#Download Important Libraries
+library("readxl")
+library(dplyr)
+library(forecast)
+```
+
+
+```{r}
+setwd("/Users/chigozirimibeabuchi/Downloads/Logistics and Supply Chain Individual Project/data")
+store_restaurant <- read_excel("store_restaurant.xlsx")
+pos_ordersale <- read.csv("pos_ordersale.csv")
+menuitem <- read.csv("menuitem.csv")
+menu_items <- read.csv("menu_items.csv")
+ingredients <- read.csv("ingredients.csv")
+recipes <- read.csv("recipes.csv")
+recipe_ingredient_assignments <- read.csv("recipe_ingredient_assignments.csv")
+sub_recipes <- read.csv("sub_recipes.csv")
+sub_recipe_ingr_assignments <- read.csv("sub_recipe_ingr_assignments.csv")
+recipe_sub_recipe_assignments <- read.csv("recipe_sub_recipe_assignments.csv")
+portion_uom_types <- read.csv("portion_uom_types.csv")
+
+```
+
+
+```{r}
+library(dplyr)
+library(forecast)
+library(tseries)
+
+```
+
+
+
+
+```{r}
+library(dplyr)
+# Merge the ingredients and portion_uom_types tables and return only the rows with lettuce
+lettuce_data <- ingredients %>%
+  inner_join(portion_uom_types, by = "PortionUOMTypeId") %>% 
+  filter(IngredientId == 27)
+
+print(lettuce_data)
+```
+
+```{r}
+# Compute total ounces of lettuce per recipe
+recipes_total_lettuce <- recipe_ingredient_assignments %>%
+  filter(IngredientId == 27) %>%
+  select(1, 3)
+```
+
+```{r}
+#Reference for this bit of code used for preprocessing: https://github.com/AndreasGeorgopoulos/forecast-demand/blob/master/Code_Forecast.R
+
+sub_recipes_lettuce <- sub_recipe_ingr_assignments[sub_recipe_ingr_assignments$IngredientId == 27,]
+#Perform an inner join between sub_recipes_lettuce and recipe_sub_recipe_assignments data frames on the SubRecipeId column and assign the resulting data to a new DF.
+recipes_where_subrecipes_lettuce <- inner_join(sub_recipes_lettuce, recipe_sub_recipe_assignments, by = "SubRecipeId")
+recipes_where_subrecipes_lettuce$Lettuce_Quant <- recipes_where_subrecipes_lettuce$Factor * recipes_where_subrecipes_lettuce$Quantity
+
+# aggregates the Lettuce_Quant column by RecipeId using the sum function and assigns the resulting data frame to recipes_subrec_total_lettuce.
+recipes_subrec_total_lettuce <- aggregate( cbind(Lettuce_Quant) ~ RecipeId, sum, data = recipes_where_subrecipes_lettuce)
+#renames column recipes_subrec_total_lettuce to Quantity
+colnames(recipes_subrec_total_lettuce) <- c("RecipeId","Quantity")
+
+#binds the recipes_total_lettuce and recipes_subrec_total_lettuce data frames together by row (i.e., concatenates them vertically) and assigns the resulting data frame to total
+total <- rbind(recipes_total_lettuce, recipes_subrec_total_lettuce)
+total_lettuce_per_recipe <- aggregate(cbind(Quantity) ~ RecipeId, sum, data = total)
+write.csv(total_lettuce_per_recipe, file ="total_lettuce_per_recipe.csv")
+```
+
+```{r}
+# Compute total lettuce quantity per day for each restaurant
+# find recipe id and lettuce_quantity per menuitem (keep menuitems that include lettuce only)
+menuitem <- inner_join(menuitem, menu_items, by = c("Id" = "MenuItemId"))
+menuitem <- inner_join(menuitem, total_lettuce_per_recipe, by = "RecipeId")
+colnames(menuitem)[20] <- "Lettuce_Quantity"
+```
+
+```{r}
+# compute total amount of lettuce per transaction and menu item
+library(dplyr)
+
+menuitem %>% 
+  mutate(Total_Lettuce_Quantity = Quantity.x * Lettuce_Quantity) %>% 
+  filter(StoreNumber %in% c(4904, 12631, 20974, 46673)) %>% 
+  group_by(StoreNumber, date) %>% 
+  summarise(Total_Lettuce_Quantity = sum(Total_Lettuce_Quantity))
+
+```
+
+```{r}
+write.csv(store_4904, file ="store_4904.csv")
+write.csv(store_12631, file ="store_12631.csv")
+write.csv(store_20974, file ="store_20974.csv")
+write.csv(store_46673, file ="store_46673.csv")
+```
+
+```{r}
+### store 20974 forecasting
+#This data frame has missing data present, so the first six rows will be removed 
+store_20974new <- store_20974[-(1:6),]
+rownames(store_20974new) <- 1:nrow(store_20974new)
+```
+
+To start off with the forecasting, we are going to create a time series object of the lettuce data for store 20974. By creating a time series object, we are making it less complicated to use time series forecasting methods. Setting the frequency = 7 means that the time series has a weekly frequency.
+
+```{r}
+#Create a time series object
+store_20974ts <- ts(store_20974new[, 2], frequency = 7, start = c(1,1))
+
+#plot time series object
+autoplot(store_20974ts)
+
+#decompose time series into trend,seasonality
+store_20974ts %>% stl(s.window = "period") %>% autoplot
+store_20974ts
+```
+Here, the stl() function is used to carry out a time series decomposition. The time series decomposition will enable us to understand if there are any underlying trends or seasonal patterns in the time series. From the decomposition of the time series, it can be seen that the data does not have a trend and there is no seasonality because of the magnitude of the vertical bars. So, the magnitude of the vertical bars in the time series decomposition give an indication of how much seasonality or trend is present in the time series.For example, if the vertical bar is very high, it means that it is more likely that the time series does not have a trend or seasonality. However, if it is not high, there is a higher probability that the time series has trend and seasonality.
+
+
+```{r}
+##training/test split
+store_20974ts.train <- window(store_20974ts, end = c(11,1))
+store_20974ts.test <- window(store_20974ts, start = c(11, 2))
+```
+
+Here, the data has been split into testing and training data. In this store, the lettuce demand was recorded for 94-6=88 days. If this is converted to weeks, it can be interpreted as 12.57~13 weeks. We would like the training data to be 80% of the dataset. So, this means that the training datset will be comprised of 0.8 * 13 = 10.4 weeks of data. This could be approximately 11 weeks. Since, this is not exactly fully 11 weeks. We then assume that this training dataset ends on the first day of the 11th week. We can now start the test dataset from the 2nd day of the 11th week.
+
+Here, we use the ets() function to estimate the model. The model parameter is set to "ZZZ" to ensure that all components are chosen based on the information criterion. 
+```{r}
+#ets
+store_20974ts.ets2 <- ets(store_20974ts.train, model = "ZZZ")
+```
+The optimal model returned here is A,N,A. This means that the recommended model has an additive error, no trend and an additive seasonal component.This means that unlike what was mentioned during the analysis of the time series decomposition, this time series may have a seasonal component. 
+
+```{r}
+#out of sample evaluation
+store_20974ts.ets2.f <- forecast(store_20974ts.ets2, h = 17)
+```
+Here, the exponential smoothing model estimated will be used to generate a forecast on the test dataset.The test dataset is made up of 17 records. This is why h has been set to 17.
+
+```{r}
+#out of sample evaluation continued
+plot(store_20974ts.ets2.f)
+lines(fitted(store_20974ts.ets2.f), col = "red", lty = 2)
+lines(store_20974ts.test, col="green")
+```
+
+In the forecast section, the Light grey represents the 95% confidence interval while the light purple colour represents the 98% confidence interval . Here, it can be seen that the forecast is pretty good at fitting the forecasted test data to the original data.
+
+
+```{r}
+#check forecasting error
+accuracy(store_20974ts.ets2.f, store_20974ts.test)
+
+```
+Model has an RMSE of 48.38990 on the test dataset. The Root Mean Squared Error is a good measure for assessing how good a predictive model is. Later on, this value will be compared to the best ARIMA model.
+
+
+For this store, an ARIMA model will be estimated. Before this model is estimated, different stationarity tests will be carried out to check if the time series is stationary. The first test is the Augmented Dickey-Fuller Test. For this test, the null hypothesis is that the time series has a unit root i.e. the time series is not stationary. The second test is called the Phillips-Perron Unit Root Test. Here, the null hypothesis is also that the time series is not stationary. The last test here is the KPSS Test for Level Stationarity. The null hypothesis here is that the time series is stationary i.e. the time series is stationary around a particular mean.
+```{r}
+### ARIMA model for store 20974
+# stationary test
+adf.test(store_20974ts.train)
+pp.test(store_20974ts.train)
+kpss.test(store_20974ts.train)
+```
+
+From the results of the ADF test, since the p value is exactly equal to 0.05(which is the significance level ). Hence, it is not clear whether the null hypothesis should be rejected or accepted. For the PP test, the p value is 0.01 and is therefore less than a 5% significance level. This means that the null hypothesis can be rejected and we can accept that the time series is stationary. However, another confirmation will or will not be determined by the KPSS test. For the KPSS test, the p value (0.1) is larger than 0.05, so we fail to reject the null hypothesis and we can conclude that the time series is stationary around a deterministic mean.
+
+
+Here, the ndiffs() function will be used on the training data to show the number of differences that need to be taken to make the time series to be stationary. The nsdiffs() function will be used to show the number of seasonal differences to be taken to make the time series stationary.
+```{r}
+ndiffs(store_20974ts.train) #tells you how many first order differences to take on data to remove trend
+nsdiffs(store_20974ts.train) #tells you how many seasonal differences need to be taken
+```
+From the result gotten, it can be seen that since ndiffs returns 0 the time series is stationary and hence does not need any differencing. Since nsdiffs() also returns 0, it means that there is no seasonality in the time series.
+
+```{r}
+ggAcf(store_20974ts.train, lag.max = 40)
+ggPacf(store_20974ts.train, lag.max = 40)
+```
+The ACF graph shows significant upward spikes at lags 1 and 7. And these spikes go outside the confidence interval so they are significant.  This means that there might be a high level of correlation between observations that are 7 time periods apart.This indicates that there might be some weekly seasonality present in the data. in the PAcf graph, the upward spike at lag 1 could mean that there may be a high level of correlation between the observations at this lag. It also confirms the hypothesis that the time series is indeed stationary.
+
+Here, the auto.arima() function will be used on the training data to select the best ARIMA model for this time series. It does this by choosing the model with the lowest AIC and therefore the optimal values of (p,d,q) are chosen.
+
+```{r}
+#choose optimal p and q based on information criteria
+auto.arima(store_20974ts.train, trace=TRUE) 
+```
+
+From the results gotten, the best ARIMA model to be used is ARIMA(1,0,0)(1,0,0)[7].The first set of brackets stand for the normal order [p,d,q] while the second set of square brackets represent the seasonal order.This model has an AICc of 760.69. Two other models with the next lowest AICc will be chosen. These two models are:
+- ARIMA(0,0,1)(1,0,0)[7] with an AICc of 761.4665.
+- ARIMA(1,0,0)(2,0,0)[7] with an AICc of 762.0851.
+
+Here, the Arima() function will now be used to fit the ARIMA model to the training data.
+
+```{r}
+store20974_arima1 <- Arima(store_20974ts.train, order = c(1,0,0),seasonal = list(order = c(1, 0, 0), period = 7), include.drift = FALSE)
+store20974_arima2 <- Arima(store_20974ts.train, order = c(0, 0, 1),seasonal = list(order = c(1, 0, 0), period = 7), include.drift = FALSE)
+store20974_arima3 <- Arima(store_20974ts.train, order = c(1, 0, 0),seasonal = list(order = c(2, 0, 0), period = 7), include.drift = FALSE)
+```
+
+
+Here, the checkresiduals() function will be used to evaluate the quality of the residuals returned by the model.
+```{r}
+# residual analysis
+checkresiduals(store20974_arima1)
+checkresiduals(store20974_arima2)
+checkresiduals(store20974_arima3)
+
+```
+For the first model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.8163) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+For the second model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.7838) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+For the third model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.8488) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+
+Next, for each of the three models a forecast will be generated for the next 17 time periods based on their various ARIMA models.
+```{r}
+#model evaluation
+store20974.f1 <- forecast(store20974_arima1, h = 17)
+store20974.f2 <- forecast(store20974_arima2, h = 17)
+store20974.f3 <- forecast(store20974_arima3, h = 17)
+```
+
+```{r}
+#compare forecast result to real data
+accuracy(store20974.f1, store_20974ts.test)
+accuracy(store20974.f2, store_20974ts.test)
+accuracy(store20974.f3, store_20974ts.test)
+```
+From this, it can be seen that the third model will be the best model to use here as it has the lowest Root Mean Square Error(49.52775) on the test data. 
+
+```{r}
+#plot graph
+plot(store20974.f3)
+lines(fitted(store20974.f3), col = "red", lty = 2)
+lines(store_20974ts.test, col="green")
+```
+Here, it can be seen that the forecast is fairly good at fitting the predicted test data to the original data.
+
+The next step will be to test the accuracies of the ARIMA and ets model by comparing them to the test set.
+```{r}
+#check accuracy of ets and best arima model
+accuracy(store20974.f3, store_20974ts.test)
+accuracy(store_20974ts.ets2.f, store_20974ts.test)
+
+arima_errors1 <- store_20974ts.test - store20974.f3$mean
+ets_errors1 <- store_20974ts.test - store_20974ts.ets2.f$mean
+dm.test(arima_errors1, ets_errors1)
+```
+Here, it can be seen that the RMSE of the ets model(48.38990) is slightly lower than that of the ARIMA model(49.52775) when the forecast results are compared to the actual values on the test set. So, a further test called the Diebold-Mariano Test will be carried out to evaluate further which model is better. The null hypothesis of this test is that the two models have the same forecast accuracy. Since 0.7664 is greater than the significance level of 0.05. We accept the null. Hence, we will go ahead and use the ets model since we've already determined that it has a higher RMSE. It will be chosen as the model that will forecast the lettuce demand for the next 14 days.
+
+The final step will be to fit the ets model on the time series data. After this, the forecast for the next two weeks will be generated. Finally, a graph showing the forecasts and the historical data will be displayed.
+```{r}
+#final model
+model.f <- ets(store_20974ts, model='ANA')
+model.f1 <- forecast(model.f, h = 14)
+model.f1
+plot(model.f1)
+
+```
+
+To start off with the forecasting, we are going to create a time series object of the lettuce data for store 4904. By creating a time series object, we are making it less complicated to use time series forecasting methods. Setting the frequency = 7 means that the time series has a weekly frequency.
+```{r}
+### store 4904 forecasting
+
+#Create a time series object
+store_4904ts <- ts(store_4904[, 2], frequency = 7, start = c(1,1))
+
+#plot time series object
+autoplot(store_4904ts)
+
+#decompose time series into trend,seasonality
+store_4904ts %>% stl(s.window = "period") %>% autoplot
+store_4904ts
+```
+Here, the stl() function is used to carry out a time series decomposition. The time series decomposition will enable us to understand if there are any underlying trends or seasonal patterns in the time series. From the decomposition of the time series, it can be seen that the time series does not have a trend. However, there may be a seasonal component. 
+
+
+```{r}
+##training/test split
+store_4904ts.train <- window(store_4904ts, end = c(11,6))
+store_4904ts.test <- window(store_4904ts, start = c(11, 7))
+```
+Here, the data has been split into testing and training data. In this store, the lettuce demand was recorded for 95 days. If this is converted to weeks, it can be interpreted as 13.57 weeks. We would like the training data to be 80% of the dataset. So, this means that the training datset will be comprised of 0.8 * 13.57 = 10.856 ~11 weeks of data. This is approximately 11 weeks of data. To get the number of days, we multiply 0.856*7= 5.792. This indicates that the length of the training set will end after 11 weeks and 6 days of data have been calculated. We want the test set to be 20% of the data, so this is the rest of the dataset and will start from 11 weeks and 7. 
+
+Here, we use the ets() function to estimate the model. The model parameter is set to "ZZZ" to ensure that all components are chosen based on the information criterion. 
+
+```{r}
+#ets
+store_4904ts.ets2 <- ets(store_4904ts.train, model = "ZZZ")
+```
+The optimal model returned here is A,A,A. This means that the recommended model has an additive error, additive trend and an additive seasonal component.This means that unlike what was mentioned during the analysis of the time series decomposition, this time series may have a trend and a seasonal component. 
+
+```{r}
+#out of sample evaluation
+store_4904ts.ets2.f <- forecast(store_4904ts.ets2, h = 19)
+```
+Here, the exponential smoothing model estimated will be used to generate a forecast on the test dataset.The test dataset is made up of 19 records. This is why h has been set to 19.
+
+```{r}
+#out of sample evaluation continued
+plot(store_4904ts.ets2.f)
+lines(fitted(store_4904ts.ets2.f), col = "red", lty = 2)
+lines(store_4904ts.test, col="green")
+```
+
+Here, it can be seen that the forecast is very good at fitting the forecasted test data to the original data.
+
+```{r}
+#check forecasting error
+accuracy(store_4904ts.ets2.f, store_4904ts.test)
+
+```
+This exponential smoothing model has a root mean square error of 101.04021.
+
+
+For this store, an ARIMA model will be estimated. Before this model is estimated, the three stationarity tests: ADF,PP and KPSS will be carried out.
+```{r}
+### ARIMA model for store 4904
+# stationary test
+adf.test(store_4904ts.train)
+pp.test(store_4904ts.train)
+kpss.test(store_4904ts.train)
+
+```
+From the results of the ADF test, since the p value(0.01) is  less than 0.05(which is the significance level ), we reject the null and can say that the time series is stationary. For the PP test, the p value is 0.01 and is therefore less than a 5% significance level. This means that the null hypothesis can be rejected and we can accept that the time series is stationary.For the KPSS test, the p value (0.1) is larger than 0.05, so we fail to reject the null hypothesis and we can conclude that the time series is stationary around a deterministic mean.
+
+
+Here, the ndiffs() function will be used on the training data to show the number of differences that need to be taken to make the time series to be stationary. The nsdiffs() function will be used to show the number of seasonal differences to be taken to make the time series stationary.
+
+
+```{r}
+
+ndiffs(store_4904ts.train) #tells you how many first order differences to take on data to remove trend
+nsdiffs(store_4904ts.train) #tells you how many seasonal differences need to be taken
+```
+
+From the result gotten, it can be seen that since ndiffs returns 0 the time series is stationary and hence does not need any differencing. Since nsdiffs() returns 1, one seasonal difference needs to be taken to ensure that the time series is completely stationary.
+
+Here, we will carry out a first order difference on the training data using the diff() function. differences is specified to 1 showing that we want to take a first order difference of the time series data.
+```{r}
+# take first order difference
+store4904.diff1 <- diff(store_4904ts.train, differences = 1)
+autoplot(store4904.diff1)
+```
+
+After this first order differencing has been carried out, we will perform the adf, pp and kpss tests again to check for stationarity.
+```{r}
+adf.test(store4904.diff1)
+pp.test(store4904.diff1)
+kpss.test(store4904.diff1)
+```
+From the results of the ADF test, since the p value(0.01) is  less than 0.05(which is the significance level ), we reject the null and can say that the time series is stationary. For the PP test, the p value is 0.01 and is therefore less than a 5% significance level. This means that the null hypothesis can be rejected and we can accept that the time series is stationary.For the KPSS test, the p value (0.1) is larger than 0.05, so we fail to reject the null hypothesis and we can conclude that the time series is stationary around a deterministic mean.
+
+We will use the ndiffs() and nsdiffs() function again to check if any more differencing needs to be done.
+
+```{r}
+ndiffs(store4904.diff1) #tells you how many first order differences to take on data to remove trend
+nsdiffs(store4904.diff1) #tells you how many seasonal differences need to be taken
+```
+
+From the result gotten, it can be seen that since ndiffs returns 0 the time series is stationary and hence does not need any differencing. Since nsdiffs() also returns 0, it means that there is no more seasonality present in the time series.
+
+```{r}
+ggAcf(store4904.diff1, lag.max=40)
+ggPacf(store4904.diff1, lag.max=40)
+```
+
+The presence of significant spikes at lags 5,7,12,14,21 that go outside the confidence interval indicate a presence of autocorrelation in the time series data. In the pacf graph, the significant upward spike at lag 7 may mean that there is a strong correlation between the current observation and seven time periods ago.
+
+Here, the auto.arima() function will be used on the training data to select the best ARIMA model for this time series. It does this by choosing the model with the lowest AIC and therefore the optimal values of (p,d,q) are chosen. D is specified to be 1. This is because based on what has been observed, a first order seasonal differencing needs to be carried out. 
+
+```{r}
+#choose optimal p and q based on information criteria
+auto.arima(store_4904ts.train,D=1, trace=TRUE)
+```
+
+From the results gotten, the best ARIMA model to be used is ARIMA(0,1,1)(0,1,1)[7].The first set of brackets stand for the normal order [p,d,q] while the second set of square brackets represent the seasonal order.This model has an AICc of 726.69. Two other models with the next lowest AICc will be chosen. These two models are:
+- ARIMA(0,1,1)(1,1,1)[7] with an AICc of 728.243.
+- ARIMA(0,1,1)(0,1,2)[7] with an AICc of 728.3977.
+
+Here, the Arima() function will now be used to fit the ARIMA model to the training data.
+
+
+```{r}
+store4904_arima1 <- Arima(store_4904ts.train, order = c(0,1,1),seasonal = list(order = c(0, 1, 1), period = 7), include.drift = FALSE)
+store4904_arima2 <- Arima(store_4904ts.train, order = c(0, 1, 1),seasonal = list(order = c(1, 1, 1), period = 7), include.drift = FALSE)
+store4904_arima3 <- Arima(store_4904ts.train, order = c(0, 1, 1),seasonal = list(order = c(0, 1, 2), period = 7), include.drift = FALSE)
+```
+
+```{r}
+# residual analysis
+checkresiduals(store4904_arima1)
+checkresiduals(store4904_arima2)
+checkresiduals(store4904_arima3)
+```
+For the first model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.1909) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+For the second model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.183) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+For the third model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.1871) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+
+Next, for each of the three models a forecast will be generated for the next 19 time periods based on their various ARIMA models.
+```{r}
+#model evaluation
+store4904.f1 <- forecast(store4904_arima1, h = 19)
+store4904.f2 <- forecast(store4904_arima2, h = 19)
+store4904.f3 <- forecast(store4904_arima3, h = 19)
+```
+
+```{r}
+#compare forecast result to real data
+accuracy(store4904.f1, store_4904ts.test)
+accuracy(store4904.f2, store_4904ts.test)
+accuracy(store4904.f3, store_4904ts.test)
+```
+
+From this, it can be seen that the second model will be the best model to use here as it has the lowest Root Mean Square Error(81.00185) on the test data. 
+
+```{r}
+#plot graph
+plot(store4904.f2)
+lines(fitted(store4904.f2), col = "red", lty = 2)
+lines(store_4904ts.test, col="green")
+
+```
+
+Here, it can be seen that the forecast is really good at fitting the predicted test data to the original data.
+
+The next step will be to test the accuracies of the ARIMA and ets model by comparing them to the test set.
+```{r}
+#check accuracy of ets and best arima model
+accuracy(store4904.f2, store_4904ts.test)
+accuracy(store_4904ts.ets2.f, store_4904ts.test)
+```
+The results show that the ARIMA model has a lower RMSE (81.00185) than the exponential smoothing model (101.04021). Hence, the ARIMA model will be the best to use for the final forecast.
+
+The final step will be to fit the ARIMA model on the time series data. After this, the forecast for the next two weeks will be generated. Finally, a graph showing the forecasts and the historical data will be displayed.
+```{r}
+#final model
+model2.f <- Arima(store_4904ts, order = c(0, 1, 1),seasonal = list(order = c(1, 1, 1), period = 7), include.drift = FALSE)
+model.f2 <- forecast(model2.f, h = 14)
+plot(model.f2)
+```
+
+To start off with the forecasting, we are going to create a time series object of the lettuce data for store 12631. By creating a time series object, we are making it less complicated to use time series forecasting methods. Setting the frequency = 7 means that the time series has a weekly frequency.
+```{r}
+### store 12631 forecasting
+
+#Create a time series object
+store_12631ts <- ts(store_12631[, 2], frequency = 7, start = c(1,1))
+
+#plot time series object
+autoplot(store_12631ts)
+
+#decompose time series into trend,seasonality
+store_12631ts %>% stl(s.window = "period") %>% autoplot
+store_12631ts
+```
+
+Here, the stl() function is used to carry out a time series decomposition. The time series decomposition will enable us to understand if there are any underlying trends or seasonal patterns in the time series. From the decomposition of the time series, it can be seen that the time series has a trend but no seasonal component.
+
+```{r}
+##training/test split
+store_12631ts.train <- window(store_12631ts, end = c(12,5))
+store_12631ts.test <- window(store_12631ts, start = c(12, 6))
+```
+
+
+Here, the data has been split into testing and training data. In this store, the lettuce demand was recorded for 103 days. If this is converted to weeks, it can be interpreted as 14.71 weeks. We would like the training data to be 80% of the dataset. So, this means that the training datset will be comprised of 0.8 * 14.71 = 11.768 ~12 weeks of data. This is approximately 11 weeks of data. To get the number of days, we multiply 0.768*7= 5.376. This indicates that the length of the training set will end after 12 weeks and 5 days of data have been calculated. We want the test set to be 20% of the data, so this is the rest of the dataset and will start from 12 weeks and 6 days.
+
+Here, we use the ets() function to estimate the model. The model parameter is set to “ZZZ” to ensure that all components are chosen based on the information criterion.
+
+```{r}
+#ets
+store_12631ts.ets2 <- ets(store_12631ts.train, model = "ZZZ")
+```
+The optimal model returned here is M,N,M. This means that the recommended model has a multiplicative error, no seasonal component and multiplicative trend. This matches with what was mentioned during the analysis of the time series decomposition, that this time series has a trend but no seasonal component.
+
+```{r}
+#out of sample evaluation
+store_12631ts.ets2.f <- forecast(store_12631ts.ets2, h = 21)
+```
+Here, the exponential smoothing model estimated will be used to generate a forecast on the test dataset.The test dataset is made up of 21 records. This is why h has been set to 21.
+
+```{r}
+#out of sample evaluation continued
+plot(store_12631ts.ets2.f )
+lines(fitted(store_12631ts.ets2.f), col = "green", lty = 2)
+lines(store_12631ts.test)
+```
+Here, it can be seen that the forecast is fairly okay at fitting the forecasted test data to the original data.
+```{r}
+#check forecasting error
+accuracy(store_12631ts.ets2.f, store_12631ts.test)
+```
+This exponential smoothing model has a root mean square error of 43.66539 when the forecast is compared to the test set.
+
+For this store, an ARIMA model will be estimated. Before this model is estimated, the three stationarity tests: ADF,PP and KPSS will be carried out.
+
+
+
+```{r}
+### ARIMA model for store 12631
+
+# stationary test
+adf.test(store_12631ts.train)
+pp.test(store_12631ts.train)
+kpss.test(store_12631ts.train)
+
+```
+
+From the results of the ADF test, since the p value(0.01598) is less than 0.05(which is the significance level ), we reject the null and can say that the time series is stationary. For the PP test, the p value is 0.01 and is therefore less than a 5% significance level. This means that the null hypothesis can be rejected and we can accept that the time series is stationary.For the KPSS test, the p value (0.01) and this is smaller than 0.05. So, we reject the null hypothesis that the time series is stationary.
+
+
+
+Here, the ndiffs() function will be used on the training data to show the number of differences that need to be taken to make the time series to be stationary. The nsdiffs() function will be used to show the number of seasonal differences to be taken to make the time series stationary.
+```{r}
+
+ndiffs(store_12631ts.train) #tells you how many first order differences to take on data to remove trend
+nsdiffs(store_12631ts.train) #tells you how many seasonal differences need to be taken
+```
+
+From the result gotten, it can be seen that since ndiffs returns 1 the time series is not stationary and hence needs first order differencing to remove the trend component. Since nsdiffs() returned 0, no seasonal difference needs to be taken to ensure that the time series is completely stationary.
+
+Here, we will carry out a first order difference on the training data using the diff() function. differences is specified to 1 showing that we want to take a first order difference of the time series data.
+```{r}
+# take first order difference
+store12631.diff1 <- diff(store_12631ts.train, differences = 1)
+autoplot(store12631.diff1)
+```
+
+
+```{r}
+
+ndiffs(store12631.diff1) #tells you how many first order differences to take on data to remove trend
+nsdiffs(store12631.diff1) #tells you how many seasonal differences need to be taken
+```
+After using the ndiffs() and nsdiffs() again, the values returned are 0 which shows that the differencing was successful and the trend component has been removed.
+
+```{r}
+ggAcf(store12631.diff1)
+ggPacf(store12631.diff1)
+```
+In the ACF graph, the presence of significant spikes at lags 1 and 7 that go outside the confidence interval indicate a presence of autocorrelation in the time series data. In the pacf graph, the significant downward spikes at lags 1,2,3,5 and 6 may mean that there is a strong negative correlation among some observations in the series.
+
+Here, the auto.arima() function will be used on the training data to select the best ARIMA model for this time series. It does this by choosing the model with the lowest AICc and therefore the optimal values of (p,d,q) are chosen. d is specified to be 1. This is because based on what has been observed, a first order differencing needs to be carried out.
+
+
+```{r}
+#choose optimal p and q based on information criteria
+auto.arima(store_12631ts.train,d=1, trace=TRUE) 
+```
+From the results gotten, the best ARIMA model to be used is ARIMA(0,1,1)(0,0,2)[7].The first set of brackets stand for the normal order [p,d,q] while the second set of square brackets represent the seasonal order.This model has an AICc of 839.27. Two other models with the next lowest AICc will be chosen. These two models are:
+- ARIMA(0,1,1)(0,0,1)[7] with an AICc of 839.5062. 
+- ARIMA(1,1,1)(0,0,2)[7] with an AICc of 841.5416.
+
+Here, the Arima() function will now be used to fit the ARIMA model to the training data.
+
+```{r}
+store12631_arima1 <- Arima(store_12631ts.train, order = c(0, 1, 1),seasonal = list(order = c(0, 0, 2), period = 7), include.drift = FALSE)
+store12631_arima2 <- Arima(store_12631ts.train, order = c(0, 1, 1),seasonal = list(order = c(0, 0, 1), period = 7), include.drift = FALSE)
+store12631_arima3 <- Arima(store_12631ts.train, order = c(1, 1, 1),seasonal = list(order = c(0, 0, 2), period = 7), include.drift = FALSE)
+```
+
+Here, the checkresiduals() function will be used to evaluate the quality of the residuals returned by the model.
+```{r}
+# residual analysis
+checkresiduals(store12631_arima1)
+checkresiduals(store12631_arima2)
+checkresiduals(store12631_arima3)
+```
+For the first model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.7649) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+For the second model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.4439) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+For the third model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.6849) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+Next, for each of the three models a forecast will be generated for the next 21 time periods based on their various ARIMA models.
+
+
+```{r}
+#model evaluation
+store12631.f1 <- forecast(store12631_arima1, h = 21)
+store12631.f2 <- forecast(store12631_arima2, h = 21)
+store12631.f3 <- forecast(store12631_arima3, h = 21)
+```
+
+```{r}
+#compare forecast result to real data
+accuracy(store12631.f1, store_12631ts.test)
+accuracy(store12631.f2, store_12631ts.test)
+accuracy(store12631.f3, store_12631ts.test)
+```
+From this, it can be seen that the first model has the lowest RMSE- 50.78709. So, it will be the best model to use for the forecasting.
+
+```{r}
+#plot graph
+plot(store12631.f1)
+lines(fitted(store12631.f1), col = "red", lty = 2)
+lines(store_12631ts.test, col="green")
+```
+
+Here, it can be seen that the forecast is fairly okay at fitting the predicted test data to the original data. 
+
+The next step will be to test the accuracies of the ARIMA and ets model by comparing them to the test set.
+
+
+```{r}
+#check accuracy of ets and best arima model
+accuracy(store12631.f1, store_12631ts.test)
+accuracy(store_12631ts.ets2.f, store_12631ts.test)
+```
+
+The results show that the ets model has a lower RMSE (43.66539) than the ARIMA model (50.78709). Hence, the ets model will be the best to use for the final forecast.
+
+
+The final step will be to fit the ets model on the time series data. After this, the forecast for the next two weeks will be generated. Finally, a graph showing the forecasts and the historical data will be displayed.
+
+```{r}
+#final model
+model3.f <- ets(store_12631ts, model='MNM')
+model3.f3<- forecast(model3.f, h = 14)
+plot(model3.f3)
+model3.f3
+```
+
+
+To start off with the forecasting, we are going to create a time series object of the lettuce data for store 46673. By creating a time series object, we are making it less complicated to use time series forecasting methods. Setting the frequency = 7 means that the time series has a weekly frequency.
+
+```{r}
+### store 46673 forecasting
+
+#Create a time series object
+store_46673ts <- ts(store_46673[, 2], frequency = 7, start = c(1,1))
+
+#plot time series object
+autoplot(store_46673ts)
+
+#decompose time series into trend,seasonality
+store_46673ts %>% stl(s.window = "period") %>% autoplot
+store_46673ts
+```
+
+Here, the stl() function is used to carry out a time series decomposition. The time series decomposition will enable us to understand if there are any underlying trends or seasonal patterns in the time series. From the decomposition of the time series, it can be seen that the time series has no trend but a seasonal component.
+
+```{r}
+##training/test split
+store_46673ts.train <- window(store_46673ts, end = c(12,5))
+store_46673ts.test <- window(store_46673ts, start = c(12, 6))
+```
+Here, the data has been split into testing and training data. In this store, the lettuce demand was recorded for 103 days. If this is converted to weeks, it can be interpreted as 14.71 weeks. We would like the training data to be 80% of the dataset. So, this means that the training datset will be comprised of 0.8 * 14.71 = 11.768 ~12 weeks of data. This is approximately 11 weeks of data. To get the number of days, we multiply 0.768*7= 5.376. This indicates that the length of the training set will end after 12 weeks and 5 days of data have been calculated. We want the test set to be 20% of the data, so this is the rest of the dataset and will start from 12 weeks and 6 days.
+
+Here, we use the ets() function to estimate the model. The model parameter is set to “ZZZ” to ensure that all components are chosen based on the information criterion.
+
+
+```{r}
+#ets
+store_46673ts.ets2 <- ets(store_46673ts.train, model = "ZZZ")
+```
+The optimal model returned here is A,N,A. This means that the recommended model has a an additive error component, no trend and an additive seasonal component.
+
+```{r}
+#out of sample evaluation
+store_46673ts.ets2.f <- forecast(store_46673ts.ets2, h = 21)
+```
+Here, the exponential smoothing model estimated will be used to generate a forecast on the test dataset.The test dataset is made up of 21 records. This is why h has been set to 21.
+
+
+```{r}
+#out of sample evaluation continued
+plot(store_46673ts.ets2.f )
+lines(fitted(store_46673ts.ets2.f), col = "green", lty = 2)
+lines(store_46673ts.test)
+```
+Here, it can be seen that the forecast is fairly good at fitting the forecasted test data to the original data.
+
+```{r}
+#check forecasting error
+accuracy(store_46673ts.ets2.f, store_46673ts.test)
+
+```
+This exponential smoothing model has a root mean square error of 38.1646 when the forecast is compared to the test set.
+
+For this store, an ARIMA model will be estimated. Before this model is estimated, the three stationarity tests: ADF,PP and KPSS will be carried out.
+
+```{r}
+### ARIMA model for store 46673
+
+# check for stationarity
+adf.test(store_46673ts.train)
+pp.test(store_46673ts.train)
+kpss.test(store_46673ts.train)
+```
+
+From the results of the ADF test, since the p value(0.01) is less than 0.05(which is the significance level ), we reject the null and can say that the time series is stationary. For the PP test, the p value is 0.01 and is therefore less than a 5% significance level. This means that the null hypothesis can be rejected and we can accept that the time series is stationary.For the KPSS test, the p value (0.1) and this is greater than 0.05. So, we fail to reject the null hypothesis that the time series is stationary.
+
+
+Here, the ndiffs() function will be used on the training data to show the number of differences that need to be taken to make the time series to be stationary. The nsdiffs() function will be used to show the number of seasonal differences to be taken to make the time series stationary.
+```{r}
+ndiffs(store_46673ts.train) #tells you how many first order differences to take on data to remove trend
+nsdiffs(store_46673ts.train) #tells you how many seasonal differences need to be taken
+```
+
+
+From the result gotten, it can be seen that since ndiffs returns 0 the time series is  stationary and hence needs no first order differencing to remove the trend component. Since nsdiffs() returned 1, a seasonal difference needs to be taken to ensure that the time series is completely stationary.
+
+Here, we will carry out a first order difference on the training data using the diff() function. differences is specified to 1 showing that we want to take a first order difference of the time series data.
+
+```{r}
+#take first order differencing
+store46673.diff1 <- diff(store_46673ts.train, differences = 1,lag=7)
+autoplot(store46673.diff1)
+```
+We will use the ndiffs() and nsdiffs() function again to check for any stationarity.
+
+```{r}
+# stationary test
+ndiffs(store46673.diff1) #tells you how many first order differences to take on data to remove trend
+nsdiffs(store46673.diff1) #tells you how many seasonal differences need to be taken
+
+```
+
+The results gotten show that the first-order differencing was successful. So, all trend and seasonal components have been removed.
+
+```{r}
+ggAcf(store46673.diff1)
+ggPacf(store46673.diff1)
+```
+For the ACF graph, the significant downward spike at lag 7 may indicate some negative correlation among some periods in the time series. While the upward spike at lag 11 may give an indication on some positive correlation among some periods in the series. This also goes for the PACf, and may be useful for predicting the order of the AR and MA models.
+
+
+Here, the auto.arima() function will be used on the training data to select the best ARIMA model for this time series. It does this by choosing the model with the lowest AICc and therefore the optimal values of (p,d,q) are chosen. d is specified to be 1. This is because based on what has been observed, a first order differencing needs to be carried out.
+```{r}
+#choose optimal p and q based on information criteria
+auto.arima(store_46673ts.train,D=1, trace=TRUE) 
+```
+
+From the results gotten, the best ARIMA model to be used is ARIMA(1,0,0)(0,1,1)[7].The first set of brackets stand for the normal order [p,d,q] while the second set of square brackets represent the seasonal order.This model has an AICc of 713.19 . Two other models with the next lowest AICc will be chosen. These two models are: 
+- ARIMA(0,0,0)(0,1,1)[7] with an AICc of 713.2449. 
+- ARIMA(0,0,1)(0,1,1)[7] with an AICc of 713.2317.
+
+
+
+Here, the Arima() function will now be used to fit the ARIMA model to the training data.
+
+```{r}
+store46673_arima1 <- Arima(store_46673ts.train, order = c(1, 0, 0),seasonal = list(order = c(0, 1, 1), period = 7), include.drift = FALSE)
+store46673_arima2 <- Arima(store_46673ts.train, order = c(0, 0, 0),seasonal = list(order = c(0, 1, 1), period = 7), include.drift = FALSE)
+store46673_arima3 <- Arima(store_46673ts.train, order = c(0, 0, 1),seasonal = list(order = c(0, 1, 1), period = 7), include.drift = FALSE)
+```
+
+Here, the checkresiduals() function will be used to evaluate the quality of the residuals returned by the model.
+```{r}
+# residual analysis
+checkresiduals(store46673_arima1)
+checkresiduals(store46673_arima2)
+checkresiduals(store46673_arima3)
+```
+For the first model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there some significant autocorrelations at two lags.  Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.2215) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+For the second model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.05153) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+For the third model, the time series plot shows that the residuals follow a white noise pattern and no trend can be observed. Also, from the ACF graph there is no significant autocorrelation at any lag. So, this confirms that the residuals are independent. Finally, the residuals follow a normal distribution so this indicates that this is a good model. The result of the Ljung-Box test shows a p-value(0.1994) that is greater than the 5% significance level. Hence, we fail to reject the null and can conclude that the residuals are independently distributed.
+
+Next, for each of the three models a forecast will be generated for the next 21 time periods based on their various ARIMA models.
+
+
+```{r}
+#model evaluation
+store46673.f1 <- forecast(store46673_arima1, h = 21)
+store46673.f2 <- forecast(store46673_arima2, h = 21)
+store46673.f3 <- forecast(store46673_arima3, h = 21)
+```
+
+```{r}
+#compare forecast result to real data
+accuracy(store46673.f1, store_46673ts.test)
+accuracy(store46673.f2, store_46673ts.test)
+accuracy(store46673.f3, store_46673ts.test)
+```
+From this, it can be seen that the first model has the lowest RMSE (38.00071) when the forecast results are compared to the test set. 
+```{r}
+#check accuracy of ets and best arima model
+accuracy(store46673.f1, store_46673ts.test)
+accuracy(store_46673ts.ets2.f, store_46673ts.test)
+
+arima_errors <- store_46673ts.test - store46673.f1$mean
+ets_errors <- store_46673ts.test - store_46673ts.ets2.f$mean
+dm.test(arima_errors, ets_errors)
+```
+
+From this, it can be seen that the ARIMA model has a slighltly lower RMSE (38.00071) than the ETS model (38.16146). So, a further test called the Diebold-Mariano Test will be carried out to evaluate further which model is better. The null hypothesis of this test is that the two models have the same forecast accuracy. Since 0.9451 is greater than the significance level of 0.05. We accept the null. Hence, we will go ahead and use the ets model.
+
+The final step will be to fit the ets model on the time series data. After this, the forecast for the next two weeks will be generated. Finally, a graph showing the forecasts and the historical data will be displayed.
+```{r}
+#final model
+model4.f <- ets(store_46673ts, model='ANA')
+model4.f4<- forecast(model4.f, h = 14)
+plot(model4.f4)
+```
+```{r}
+# Load the data frames,attempt to create csv file failed. So, I just transformed the vectors to dataframes and manually copied and pasted results into MS Excel.
+model4 <- data.frame(model4.f4)
+model2 <- data.frame(model.f2)
+model3 <- data.frame(model3.f3)
+model1 <- data.frame(model.f1)
+
+
+```
+
+
+

@@ -1,0 +1,310 @@
+---
+title: "RMA Individual Project Part 2"
+output: html_document
+date: "2023-04-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+setwd("/Users/chigozirimibeabuchi/Downloads/")
+```
+
+```{r}
+# Load required packages
+library(dplyr)
+library(readxl)
+
+# Read the shampoo data
+shampoo_data1 <- read_excel("shampoo.xls")
+head(shampoo_data1)
+```
+
+```{r}
+# Create separate datasets for each brand
+shampoo_data1 <- shampoo_data[shampoo_data$brand == 1, ]
+shampoo_data2 <- shampoo_data[shampoo_data$brand == 2, ]
+
+# Calculate potential for awareness and consideration for each brand
+potential_awareness_1 <- (100 - mean(shampoo_data1$awareness)) / 100
+potential_consideration_1 <- (100 - mean(shampoo_data1$consideration)) / 100
+potential_awareness_2 <- (100 - mean(shampoo_data2$awareness)) / 100
+potential_consideration_2 <- (100 - mean(shampoo_data2$consideration)) / 100
+
+# Calculate potential for liking for each brand
+shampoo_data1$liking_transformed <- shampoo_data1$liking / 7
+potential_liking_1 <- 1 - mean(shampoo_data1$liking_transformed)
+shampoo_data2$liking_transformed <- shampoo_data2$liking / 7
+potential_liking_2 <- 1 - mean(shampoo_data2$liking_transformed)
+
+potential_awareness_1
+potential_awareness_2
+potential_consideration_1
+potential_consideration_2
+potential_liking_1
+potential_liking_2
+
+
+
+```
+
+
+```{r}
+ar1 <- ar(shampoo_data1$awareness, aic= TRUE)
+ar1
+```
+
+
+```{r}
+ar1a <- ar(shampoo_data2$awareness, aic= TRUE)
+ar1a
+```
+
+
+
+
+
+```{r}
+#liking
+ar2 <- ar(shampoo_data1$liking, aic = TRUE)
+ar2
+```
+
+```{r}
+#liking
+ar2a <- ar(shampoo_data2$liking, aic = TRUE)
+ar2a
+```
+
+
+
+
+```{r}
+#consideration
+ar3 <- ar(shampoo_data1$consideration, aic = TRUE)
+ar3
+```
+```{r}
+#consideration
+ar3a <- ar(shampoo_data2$consideration, aic = TRUE)
+ar3a
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+#We start by generating lagged variables for each mindset metric and sales
+
+shampoo_data1$lag_aware<-lag(shampoo_data1$awareness)
+shampoo_data1$lag_aware[1]<-0
+shampoo_data1$lag_liking <-lag(shampoo_data1$liking)
+shampoo_data1$lag_liking[1]<-0
+shampoo_data1$lag_consideration <-lag(shampoo_data1$consideration)
+shampoo_data1$lag_consideration[1]<-0
+shampoo_data1$lag_sales <-lag(shampoo_data1$sales)
+shampoo_data1$lag_sales[1]<-0
+
+#Now estimate the log-linear model
+
+response_aware <- lm(log(shampoo_data1$awareness+1)~log(lag_aware+1)+log(shampoo_data1$price+1)+log(shampoo_data1$promotion+1)+log(shampoo_data1$advertising+1), data = shampoo_data1)
+
+response_consideration <- lm(log(shampoo_data1$consideration+1)~log(lag_consideration+1)+log(shampoo_data1$price+1)+log(shampoo_data1$promotion+1)+log(shampoo_data1$advertising+1), data = shampoo_data1)
+
+
+response_liking <- lm(log(shampoo_data1$liking+1)~log(lag_liking+1)+log(shampoo_data1$price+1)+log(shampoo_data1$promotion+1)+log(shampoo_data1$advertising+1), data = shampoo_data1) 
+
+
+response_sales <- lm(log(shampoo_data1$sales+1)~log(lag_sales+1)+log(shampoo_data1$price+1)+log(shampoo_data1$promotion+1)+log(shampoo_data1$advertising+1), data = shampoo_data1)
+
+#Summarize all the regression results here:
+
+summary(response_aware)
+summary(response_consideration)
+summary(response_liking)
+summary(response_sales)
+```
+
+```{r}
+#We start by generating lagged variables for each mindset metric and sales
+
+shampoo_data2$lag_aware<-lag(shampoo_data2$awareness)
+shampoo_data2$lag_aware[1]<-0
+shampoo_data2$lag_liking <-lag(shampoo_data2$liking)
+shampoo_data2$lag_liking[1]<-0
+shampoo_data2$lag_consideration <-lag(shampoo_data2$consideration)
+shampoo_data2$lag_consideration[1]<-0
+shampoo_data2$lag_sales <-lag(shampoo_data2$sales)
+shampoo_data2$lag_sales[1]<-0
+
+#Now estimate the log-linear model
+
+response_aware1 <- lm(log(shampoo_data2$awareness+1)~log(lag_aware+1)+log(shampoo_data2$price+1)+log(shampoo_data2$promotion+1)+log(shampoo_data2$advertising+1), data = shampoo_data2)
+
+response_consideration1 <- lm(log(shampoo_data2$consideration+1)~log(lag_consideration+1)+log(shampoo_data2$price+1)+log(shampoo_data2$promotion+1)+log(shampoo_data2$advertising+1), data = shampoo_data2)
+
+
+response_liking1 <- lm(log(shampoo_data2$liking+1)~log(lag_liking+1)+log(shampoo_data2$price+1)+log(shampoo_data2$promotion+1)+log(shampoo_data2$advertising+1), data = shampoo_data2) 
+
+
+response_sales1 <- lm(log(shampoo_data2$sales+1)~log(lag_sales+1)+log(shampoo_data2$price+1)+log(shampoo_data2$promotion+1)+log(shampoo_data2$advertising+1), data = shampoo_data2)
+
+#Summarize all the regression results here:
+
+summary(response_aware1)
+summary(response_consideration1)
+summary(response_liking1)
+summary(response_sales1)
+```
+
+
+
+
+```{r}
+#Conversion rate for brand 1
+conversion <- lm(log(shampoo_data1$sales+1)~log(lag_sales+1)+log(shampoo_data1$awareness)+log(shampoo_data1$consideration)+log(shampoo_data1$liking), data = shampoo_data1)
+summary(conversion)
+```
+```{r}
+#Conversion rate for brand 2
+conversion1 <- lm(log(shampoo_data2$sales+1)~log(lag_sales+1)+log(shampoo_data2$awareness)+log(shampoo_data2$consideration)+log(shampoo_data2$liking), data = shampoo_data2)
+summary(conversion1)
+```
+
+```{r}
+#beginning values for liking, awareness and sale for brand 1
+begin_awareness <- mean(shampoo_data1$awareness)/100
+begin_consideration <- mean(shampoo_data1$consideration)/100
+begin_liking <- (mean(shampoo_data1$liking)/7)
+begin_sales <- mean(shampoo_data1$sales)
+begin_awareness
+begin_consideration
+begin_liking
+begin_sales
+
+```
+
+```{r}
+#beginning values for liking, awareness and sale for brand 2
+begin_awareness1 <- mean(shampoo_data2$awareness)/100
+begin_consideration1 <- mean(shampoo_data2$consideration)/100
+begin_liking1 <- (mean(shampoo_data2$liking)/7)
+begin_sales1 <- mean(shampoo_data2$sales)
+begin_awareness1
+begin_consideration1
+begin_liking1
+begin_sales1
+```
+
+
+
+
+
+
+```{r}
+#For Brand 1
+
+new_awareness <- round(begin_awareness * (3)^(0.034140) ,3)
+new_consideration <- round(begin_consideration * (3) ^ (0.014198),3)
+new_liking <- round(begin_liking * (3) ^ (0.0009728),3)
+#the responsiveness of sales to promortion can be found in the "table_response_sales"
+new_sales <- round(begin_sales * (3) ^ (0.148895),3)
+
+```
+
+
+
+
+```{r}
+#For Brand 2
+
+new_awareness1 <- round(begin_awareness1 * (3)^(0.0076) ,3)
+new_consideration1 <- round(begin_consideration1 * (3) ^ (-0.0211),3)
+new_liking1 <- round(begin_liking1 * (3) ^ (-0.0034),3)
+#the responsiveness of sales to promortion can be found in the "table_response_sales"
+new_sales1 <- round(begin_sales1 * (3) ^ (0.118645),3)
+```
+
+
+
+```{r}
+#Short run gain for Brand 1
+#Calculate gain (from "start" to "new")
+gain_awareness <- round((new_awareness/begin_awareness)   -1,3)
+gain_consideration <- round((new_consideration/begin_consideration)-1,3)
+gain_liking <-round( (new_liking/begin_liking)-1,3)
+gain_sales <-round((new_sales/begin_sales)-1,3)
+```
+
+
+
+```{r}
+#Short run gain for Brand 2
+#Calculate gain (from "start" to "new")
+gain_awareness1 <- round((new_awareness1/begin_awareness1)   -1,3)
+gain_consideration1 <- round((new_consideration1/begin_consideration1)-1,3)
+gain_liking1 <-round( (new_liking1/begin_liking1)-1,3)
+gain_sales1 <-round((new_sales1/begin_sales1)-1,3)
+
+```
+
+
+
+
+```{r}
+#Calculate long run gain for each mindset metric and sales for Brand 1
+
+    
+lrgain_awareness <- round(gain_awareness/(1-0.126487),3)
+lrgain_consideration <-round(gain_consideration/(1-0.022308),3)
+lrgain_liking <- round(gain_liking/(1+0.0114708),3)
+lrgain_sales <- round(gain_sales/(1-0.052715),3)
+lrgain_sales
+```
+
+
+```{r}
+#Calculate long run gain for each mindset metric and sales for Brand 1
+
+    
+lrgain_awareness1 <- round(gain_awareness1/(1-0.031865),3)
+lrgain_consideration1 <-round(gain_consideration1/(1-0.038241),3)
+lrgain_liking1 <- round(gain_liking1/(1-0.0014346),3)
+lrgain_sales1 <- round(gain_sales1/(1-0.026829),3)
+lrgain_sales1
+```
+
+
+```{r}
+#Calculate conversion for first brand, i.e., decompose the gain and attribute to awareness, consideration, and liking 
+
+conversion_awareness <- round(lrgain_awareness * 0.16612,3)
+conversion_consideration <-round(lrgain_consideration * -0.42438,3)
+conversion_liking <- round(lrgain_liking * 0.97227,3)
+conversion_awareness
+conversion_consideration
+conversion_liking
+
+```
+
+```{r}
+#Calculate conversion for second brand, i.e., decompose the gain and attribute to awareness, consideration, and liking
+
+conversion_awareness1 <- round(lrgain_awareness1 * 0.20549,3)
+conversion_consideration1 <-round(lrgain_consideration1 * 0.06730,3)
+conversion_liking1 <- round(lrgain_liking1 * -0.18866,3)
+conversion_awareness1
+conversion_consideration1
+conversion_liking1
+```
+

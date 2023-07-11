@@ -1,0 +1,557 @@
+---
+title: "RMA Individual Project"
+output: html_document
+date: "2023-04-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+setwd("/Users/chigozirimibeabuchi/Downloads/")
+```
+
+```{r}
+# Load required packages
+library(dplyr)
+library(readxl)
+
+# Read the shampoo data
+shampoo_data <- read_excel("shampoo.xls")
+head(shampoo_data)
+```
+```{r}
+#Data pre-processing and cleaning
+
+
+#have a look at variables in the dataset
+glimpse(shampoo_data)
+
+
+#check for missing values
+sum(is.na(shampoo_data))
+
+#look for rows that have missing data
+shampoo_data[!complete.cases(shampoo_data),]
+```
+```{r}
+#Exploratory Data Analysis
+#plot sales for brand 1
+
+brand1_sales <- shampoo_data[1:96,]
+ggplot(brand1_sales, aes(x=time, y= sales)) + geom_line()
+
+brand2_sales <- shampoo_data[97:nrow(shampoo_data), ]
+ggplot(brand2_sales, aes(x=time, y= sales)) + geom_line()
+
+#time series conversion
+brand1_salests <- ts(brand1_sales$sales, frequency = 12, start = c(1,1))
+plot(brand1_salests)
+
+brand2_salests <- ts(brand2_sales$sales, frequency = 12, start = c(1,1))
+plot(brand2_salests)
+
+
+# Decompose time series into trend, seasonality
+library(forecast)
+
+brand1_sales_stl <- stl(brand1_salests, s.window = "periodic") # Decompose time series into trend, seasonality, and remainder
+autoplot(brand1_sales_stl) # Visualize the decomposed components
+
+brand2_sales_stl <- stl(brand2_salests, s.window = "periodic") # Decompose time series into trend, seasonality, and remainder
+autoplot(brand2_sales_stl) # Visualize the decomposed components
+
+```
+
+```{r}
+# Convert the sales data to a time series
+brand1_salests <- ts(brand1_sales$sales, frequency = 12, start = c(1, 1))
+
+# Calculate the index of the last observation in the training set
+train_size <- round(length(brand1_salests) * 0.8)
+
+# Split the time series into training and testing sets
+brand1_train <- ts(brand1_salests[1:train_size], frequency = 12, start = c(1, 1))
+brand1_test <- ts(brand1_salests[(train_size+1):length(brand1_salests)], frequency = 12, start = c(1, train_size + 1))
+
+# Check the class of brand2_train and brand2_test
+class(brand1_train)
+class(brand1_test)
+
+
+
+
+```
+
+
+
+```{r}
+# stationary test
+library(tseries)
+adf.test(brand1_train)
+pp.test(brand1_train)
+kpss.test(brand1_train)
+```
+```{r}
+ndiffs(brand1_train)
+nsdiffs(brand1_train)
+```
+
+
+
+```{r}
+ggAcf(brand1_train, lag.max = 40)
+ggPacf(brand1_train, lag.max = 40)
+```
+
+
+```{r}
+auto.arima(brand1_train, trace=TRUE) 
+```
+
+```{r}
+brand1_arima1 <- Arima(brand1_train, order = c(1,0,0), include.drift = FALSE)
+brand1_arima2 <- Arima(brand1_train, order = c(1,0,1), include.drift = FALSE)
+brand1_arima3 <- Arima(brand1_train, order = c(2,0,0), include.drift = FALSE)
+
+```
+
+```{r}
+checkresiduals(brand1_arima1)
+checkresiduals(brand1_arima2)
+checkresiduals(brand1_arima3)
+```
+```{r}
+#model evaluation
+brand1.f1 <- forecast(brand1_arima1, h = 19)
+brand1.f2 <- forecast(brand1_arima2, h = 19)
+brand1.f3 <- forecast(brand1_arima3, h = 19)
+```
+
+
+```{r}
+#compare forecast result to real data
+accuracy(brand1.f1, brand1_test)
+accuracy(brand1.f2, brand1_test)
+accuracy(brand1.f3, brand1_test)
+```
+
+
+
+
+
+```{r}
+#We believe time plays an important factor in predicting sales, so we create a dummy variable to show different months of the year
+
+brand1_sales$Month <- brand1_sales$time %% 12
+brand1_sales$Month[brand1_sales$Month == 0] <- 12
+
+#convert month to factor
+brand1_sales$Month <- factor(brand1_sales$Month)
+
+#Create dummy variables for each month using the model.matrix function
+month_dummies <- model.matrix(~ Month - 1, brand1_sales)
+
+#Convert the dummy variables matrix to a data frame and rename the columns
+month_dummies_df <- as.data.frame(month_dummies)
+colnames(month_dummies_df) <- c("is_January", "is_February", "is_March", "is_April", "is_May", "is_June", "is_July", "is_August", "is_September", "is_October", "is_November", "is_December")
+
+#Merge the dummy variables data frame with the original dataset
+brand1_sales <- cbind(brand1_sales, month_dummies_df)
+
+
+```
+
+
+
+
+```{r}
+#Using multiple linear regression to forecast sales for the first brand
+
+#split data into testing and training
+train_ind_mlr <- sample(seq_len(nrow(brand1_sales)), size = floor(nrow(brand1_sales) * 0.8))
+
+train_mlr <- brand1_sales[train_ind_mlr,]
+test_mlr <- brand1_sales[-train_ind_mlr,]
+
+#train mlr model for brand 1
+# The following formula assumes your sales variable is named 'sales'
+brand1_mlrmodel <- lm(sales ~ advertising + price + promotion +
+              is_January + is_February + is_March + is_April + is_May + is_June + is_July +
+              is_August + is_September + is_October + is_November, data = train_mlr)
+
+summary(brand1_mlrmodel)
+
+```
+
+
+
+```{r, message=FALSE, warning=FALSE}
+brand1_mlrmodel_train <- predict(brand1_mlrmodel , data = train_mlr)
+brand1_mlrmodel_test <- predict(brand1_mlrmodel , newdata = test_mlr)
+
+# We name predicted sales using MLR method "Predict_MLR", and add that column into our dataset:
+brand1_sales[train_ind_mlr,'Predict_MLR'] <- brand1_mlrmodel_train
+brand1_sales[-train_ind_mlr,'Predict_MLR'] <- brand1_mlrmodel_test
+
+#N Now take a look at the first few rows of the updated data
+head(brand1_sales[-train_ind_mlr,])
+
+```
+
+```{r}
+# fit the null model
+brand1_null <- lm(sales ~ 1, data = train_mlr)
+
+# fit the full model
+brand1_full <- lm(sales ~ advertising + price + promotion +
+              is_January + is_February + is_March + is_April + is_May + is_June + is_July +
+              is_August + is_September + is_October + is_November, data = train_mlr)
+
+# perform forward selection based on AIC
+step(brand1_null, scope = list(lower = brand1_null, upper = brand1_full), direction = "forward")
+
+# perform backward selection based on AIC
+step(brand1_full, direction = "backward")
+
+# perform both forward and backward selection based on AIC
+step(brand1_null, scope = list(lower = brand1_null, upper = brand1_full), direction = "both")
+
+```
+
+
+```{r}
+brand1_mlrmodel_new <- lm(formula = sales ~ promotion + price + is_June + is_May + is_July, 
+    data = train_mlr)
+
+
+summary(brand1_mlrmodel_new)
+
+```
+
+```{r}
+brand1_mlrmodel3 <- lm(sales ~ log(price) + promotion + is_May + is_June + is_July , data = train_mlr)
+
+summary(brand1_mlrmodel3)
+```
+
+```{r}
+# Predict sales values using the model
+sales_pred5 <- predict(brand1_mlrmodel, newdata = test_mlr)
+
+# Calculate the RMSE
+rmse5 <- sqrt(mean((test_mlr$sales - sales_pred5)^2))
+
+# Print the RMSE value
+print(rmse5)
+
+```
+
+
+
+```{r}
+# Predict sales values using the model
+sales_pred6 <- predict(brand1_mlrmodel_new, newdata = test_mlr)
+
+# Calculate the RMSE
+rmse6 <- sqrt(mean((test_mlr$sales - sales_pred6)^2))
+
+# Print the RMSE value
+print(rmse6)
+```
+
+
+
+```{r}
+# Predict sales values using the model
+sales_pred7 <- predict(brand1_mlrmodel3, newdata = test_mlr)
+
+# Calculate the RMSE
+rmse7 <- sqrt(mean((test_mlr$sales - sales_pred7)^2))
+
+# Print the RMSE value
+print(rmse7)
+```
+
+
+
+```{r}
+final1 <- Arima(brand1_salests, order = c(1,0,1), include.drift = FALSE)
+brand1_final <- forecast(final1, h = 12)
+plot(brand1_final)
+
+
+```
+
+
+
+
+
+
+
+```{r}
+
+brand1_mlrmodel3_train <- predict(brand1_mlrmodel3 , data = train_mlr)
+brand1_mlrmode3l_test <- predict(brand1_mlrmodel3 , newdata = test_mlr)
+
+# We name predicted sales using MLR method "Predict_MLR", and add that column into our dataset:
+brand1_sales[train_ind_mlr,'Predict_MLR2'] <- brand1_mlrmodel3_train
+brand1_sales[-train_ind_mlr,'Predict_MLR2'] <- brand1_mlrmode3l_test
+
+#N Now take a look at the first few rows of the updated data
+head(brand1_sales[-train_ind_mlr,])
+
+
+
+```
+
+
+
+```{r}
+#Forecasting for Brand 2
+#We believe time plays an important factor in predicting sales, so we create a dummy variable to show different months of the year
+
+brand2_sales$Month <- brand2_sales$time %% 12
+brand2_sales$Month[brand2_sales$Month == 0] <- 12
+
+#convert month to factor
+brand2_sales$Month <- factor(brand2_sales$Month)
+
+#Create dummy variables for each month using the model.matrix function
+month_dummies <- model.matrix(~ Month - 1, brand2_sales)
+
+#Convert the dummy variables matrix to a data frame and rename the columns
+month_dummies_df <- as.data.frame(month_dummies)
+colnames(month_dummies_df) <- c("is_January", "is_February", "is_March", "is_April", "is_May", "is_June", "is_July", "is_August", "is_September", "is_October", "is_November", "is_December")
+
+#Merge the dummy variables data frame with the original dataset
+brand2_sales <- cbind(brand2_sales, month_dummies_df)
+
+```
+
+```{r}
+#Using multiple linear regression to forecast sales for the second brand
+
+#split data into testing and training
+train_ind_mlr1 <- sample(seq_len(nrow(brand2_sales)), size = floor(nrow(brand2_sales) * 0.8))
+
+train_mlr1 <- brand2_sales[train_ind_mlr1,]
+test_mlr1 <- brand2_sales[-train_ind_mlr1,]
+
+#train mlr model for brand 2
+# The following formula assumes your sales variable is named 'sales'
+brand2_mlrmodel <- lm(sales ~ advertising + price + promotion +
+              is_January + is_February + is_March + is_April + is_May + is_June + is_July +
+              is_August + is_September + is_October + is_November, data = train_mlr1)
+
+summary(brand2_mlrmodel)
+```
+
+
+```{r}
+# fit the null model
+brand2_null <- lm(sales ~ 1, data = train_mlr1)
+
+# fit the full model
+brand2_full <- lm(sales ~ advertising + price + promotion +
+              is_January + is_February + is_March + is_April + is_May + is_June + is_July +
+              is_August + is_September + is_October + is_November, data = train_mlr1)
+
+# perform forward selection based on AIC
+step(brand2_null, scope = list(lower = brand2_null, upper = brand2_full), direction = "forward")
+
+# perform backward selection based on AIC
+step(brand2_full, direction = "backward")
+
+# perform both forward and backward selection based on AIC
+step(brand2_null, scope = list(lower = brand2_null, upper = brand2_full), direction = "both")
+
+```
+
+```{r}
+brand2_mlrmodel3 <- lm(sales ~ advertising + price + is_February + is_August, data = train_mlr1)
+
+summary(brand2_mlrmodel3)
+```
+
+```{r}
+# Estimate polynomial regression model with quadratic terms
+model <- lm(sales ~ advertising + log(price) + is_February + is_August, data = train_mlr1)
+
+summary(model)
+
+
+```
+
+```{r}
+# fit the linear regression model to the training data
+model <- lm(sales ~ advertising + log(price) + is_February + is_August, data = train_mlr1)
+
+# use the model to make predictions on the test data
+test_mlr1$predicted_sales <- predict(model, newdata = test_mlr1)
+
+# store the actual sales values in a new column
+test_mlr1$actual_sales <- test_mlr1$sales
+
+# print out the summary of the model
+summary(model)
+
+# view the predicted and actual sales values for the test dataset
+head(test_mlr1[, c( "predicted_sales", "actual_sales")])
+
+```
+
+
+
+
+
+
+```{r}
+# Calculate the correlation matrix of the predictor variables in brand2_mlrmodel4
+cor(train_mlr1[, c("sales", "advertising", "price", "promotion", "is_August")])
+
+```
+
+
+
+
+```{r}
+# Predict sales values using the model
+sales_pred2 <- predict(brand2_mlrmodel, newdata = test_mlr1)
+
+# Calculate the RMSE
+rmse2 <- sqrt(mean((test_mlr1$sales - sales_pred2)^2))
+
+# Print the RMSE value
+print(rmse2)
+```
+
+ 
+
+
+
+
+```{r}
+# Predict sales values using the model
+sales_pred <- predict(model, newdata = test_mlr1)
+
+# Calculate the RMSE
+rmse <- sqrt(mean((test_mlr1$sales - sales_pred)^2))
+
+# Print the RMSE value
+print(rmse)
+
+```
+
+
+
+```{r}
+
+# Predict sales values using the model
+sales_pred1 <- predict(brand2_mlrmodel3, newdata = test_mlr1)
+
+# Calculate the RMSE
+rmse1 <- sqrt(mean((test_mlr1$sales - sales_pred1)^2))
+
+# Print the RMSE value
+print(rmse1)
+```
+
+
+```{r}
+#use the index to get the original value of sales in testing dataset. 
+test_mlr.r <- NeuralPriceAdsData$Sales[-train_ind_mlr]
+
+#use the index to get the predicted value of sales (using MLR method) in testing dataset. 
+test_mlr_predict.r <- NeuralPriceAdsData$Predict_MLR[-train_ind_mlr]
+```
+
+
+
+
+
+
+```{r}
+
+
+# Convert the sales data to a time series
+brand2_salests <- ts(brand2_sales$sales, frequency = 12, start = c(1, 1))
+
+# Calculate the index of the last observation in the training set
+train_size <- round(length(brand2_salests) * 0.8)
+
+# Split the time series into training and testing sets
+brand2_train <- ts(brand2_salests[1:train_size], frequency = 12, start = c(1, 1))
+brand2_test <- ts(brand2_salests[(train_size+1):length(brand2_salests)], frequency = 12, start = c(1, train_size + 1))
+
+# Check the class of brand2_train and brand2_test
+class(brand2_train)
+class(brand2_test)
+
+
+```
+
+
+
+
+
+```{r}
+# stationary test
+library(tseries)
+adf.test(brand2_train)
+pp.test(brand2_train)
+kpss.test(brand2_train)
+```
+
+```{r}
+ndiffs(brand2_train)
+nsdiffs(brand2_train)
+```
+
+
+```{r}
+ggAcf(brand2_train, lag.max = 40)
+ggPacf(brand2_train, lag.max = 40)
+```
+
+```{r}
+auto.arima(brand2_train, trace=TRUE)
+```
+
+```{r}
+brand2_arima1 <- Arima(brand2_train, order = c(2, 0, 0),seasonal = list(order = c(2, 0, 0), period = 12), include.drift = FALSE)
+brand2_arima2 <- Arima(brand2_train, order = c(1, 0, 1),seasonal = list(order = c(2, 0, 0), period = 12), include.drift = FALSE)
+brand2_arima2 <- Arima(brand2_train, order = c(2, 0, 0),seasonal = list(order = c(2, 0, 1), period = 12), include.drift = FALSE)
+```
+
+
+```{r}
+checkresiduals(brand2_arima1)
+checkresiduals(brand2_arima2)
+checkresiduals(brand2_arima3)
+```
+
+
+```{r}
+#model evaluation
+brand2.f1 <- forecast(brand2_arima1, h = 19)
+brand2.f2 <- forecast(brand2_arima2, h = 19)
+brand2.f3 <- forecast(brand2_arima3, h = 19)
+```
+
+
+```{r}
+#compare forecast result to real data
+accuracy(brand2.f1, brand2_test)
+accuracy(brand2.f2, brand2_test)
+accuracy(brand2.f3, brand2_test)
+```
+
+
