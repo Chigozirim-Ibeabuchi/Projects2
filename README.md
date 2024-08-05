@@ -23,3 +23,4 @@
    Analysing attitudinal metrics can also help businesses understand the effectiveness of their advertising and promotional campaigns in winning over customers.
    By using these metrics, businesses can make informed decisions on how to allocate resources efficiently and effectively to maximise their brand's success.
 - For [Retail and Marketing Analytics Coursework.pdf](Retail%20and%20Marketing%20Analytics%20Coursework.pdf), this is the written report on the sales forecasting and attitudinal metrics analysis for effective marketing project.
+- Using R and Tableau, I carried out data analysis to understand the customer purchase behavior on an E-commerce site with over 16,000 users, identifying key trends and patterns that informed marketing strategies and improved user experience. The presentation can be viewed [here](Understanding%20Customer%20Purchase%20Behavior%20on%20E-Commerce%20Sites.pdf).
