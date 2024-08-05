@@ -1,6 +1,6 @@
  # Projects2
  These are some of the projects I completed over the years as a student ranging from 2018 till date.
- - The first project is a sample of my written work, my MSc thesis from UCL, titled "High Temperature, High Pressure Hydrogen Attack of Materials."
+ - The first project is a sample of my written research work, my MSc thesis from UCL, titled "High Temperature, High Pressure Hydrogen Attack of Materials."
    The project aimed to analyse the susceptibility of superalloys in jet engine combustion chambers to hydrogen-induced damage. Through extensive literature review and risk assessment,
    it was identified that high-temperature hydrogen embrittlement could affect superalloys. The findings highlighted interactions between carbides and trapped hydrogen as key to understanding hydrogen attack.
     Additionally, experiments were designed to test for hydrogen-induced damage. You can review the full report [here](Chigozirim%20Adanna%20Ibeabuchi%20(MSc%20Thesis).pdf).
